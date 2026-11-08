@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- build artifacts / compiled ---
+build/
+backups/
+*.kext/
+*.so
+*.o
+*.zip
+
+# --- third-party dependencies (download separately) ---
+MacKernelSDK/
+lilu/
+revault_re/libfprint-2-tod1-broadcom/
+
+# --- proprietary / vendor binaries (DO NOT distribute) ---
+win_re/bipdll.dll
+win_re/*.dll
+win_re/device_rsa_modulus.bin
+
+# --- captures, logs, reverse-engineering session dumps ---
+linux_capture/
+win_re/crypto_log.txt
+*.pcap
+*.log
+controlvault/fpunlock.log
+
+# --- personal / device-specific state ---
+controlvault/mac_template.json
+tools/enroll_state.json
+
+# --- editor / OS cruft ---
+.DS_Store
+*.bak
+*.swp
