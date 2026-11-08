@@ -114,15 +114,51 @@ class ControlVault:
             raise RuntimeError("device 0a5c:5834 non trovato")
         self.handle = 0
         self._claimed = False
+        self._lockfd = None
 
-    def claim(self):
-        usb.util.claim_interface(self.dev, 0)
+    # lock condiviso: un solo processo (FP Manager, demone, CLI) usa il lettore per volta.
+    # flock si rilascia da solo se il processo muore -> niente blocchi "fantasma".
+    _LOCK_PATH = "/tmp/cv-fp-reader.lock"
+
+    def _unlock(self):
+        import fcntl, os
+        if self._lockfd is not None:
+            try: fcntl.flock(self._lockfd, fcntl.LOCK_UN)
+            except Exception: pass
+            try: os.close(self._lockfd)
+            except Exception: pass
+            self._lockfd = None
+
+    def claim(self, wait=4.0):
+        import fcntl, os, time
+        fd = os.open(self._LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o666)
+        try: os.fchmod(fd, 0o666)
+        except Exception: pass
+        deadline = time.time() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.time() >= deadline:
+                    try: os.close(fd)
+                    except Exception: pass
+                    raise RuntimeError("lettore occupato da un altro processo "
+                                       "(demone di sblocco o FP Manager). Riprova tra un attimo.")
+                time.sleep(0.2)
+        self._lockfd = fd
+        try:
+            usb.util.claim_interface(self.dev, 0)
+        except Exception:
+            self._unlock()
+            raise
         self._claimed = True
 
     def release(self):
         if self._claimed:
             usb.util.release_interface(self.dev, 0)
             self._claimed = False
+        self._unlock()
 
     def active_config(self):
         return bytes(self.dev.ctrl_transfer(0x80, 8, 0, 0, 1, 1000))[0]
