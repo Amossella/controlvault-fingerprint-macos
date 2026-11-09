@@ -216,6 +216,37 @@ class Matcher(threading.Thread):
         self.auth = threading.Event()     # dialogo SecurityAgent presente
         self.stop = threading.Event()
         self.auth_cooldown = 0.0
+        self._fail = 0   # errori consecutivi sul lettore (per il back-off)
+
+    # ---- back-off: non martellare il lettore quando fallisce ----
+    def _note_ok(self):
+        self._fail = 0
+
+    def _try_reset(self):
+        """Best-effort: reset USB del lettore per tentare di sbloccarlo."""
+        try:
+            import controlvault as C
+            d = C.ControlVault()
+            try:
+                d.dev.reset(); log("reset USB del lettore tentato")
+            except Exception as e:
+                log("reset USB non riuscito: %s" % e)
+        except Exception:
+            pass
+
+    def _note_fail(self, where, err):
+        self._fail += 1
+        wait = min(3.0 * self._fail, 30.0)
+        log("%s errore (%d consecutivi): %s -> pausa %.0fs" % (where, self._fail, err, wait))
+        if self._fail == 3:
+            self._try_reset()   # a metà strada prova a rianimarlo
+        slept = 0.0
+        while slept < wait and not self.stop.is_set():
+            if where == "lock" and not self.locked.is_set():
+                break
+            if where == "auth" and not self.auth.is_set():
+                break
+            time.sleep(0.5); slept += 0.5
 
     # ---- helper device ----
     def _open_session(self):
@@ -266,7 +297,8 @@ class Matcher(threading.Thread):
         try:
             C, d, s, st = self._open_session()
             if st != 0:
-                log("open fallita 0x%x" % st); time.sleep(2.0); return
+                self._note_fail("lock", "open 0x%x" % st); return
+            self._note_ok()
             log("schermo bloccato: appoggia il dito...")
             while self.locked.is_set() and not self.stop.is_set():
                 res = self._try_match(C, d, s, handles, to_ms=2000)
@@ -287,7 +319,7 @@ class Matcher(threading.Thread):
                 else:
                     log("dito non riconosciuto")
         except Exception as e:
-            log("lock errore: %s" % e); time.sleep(2.0)
+            self._note_fail("lock", e)
         finally:
             try:
                 if d: d.release()
@@ -303,7 +335,8 @@ class Matcher(threading.Thread):
         try:
             C, d, s, st = self._open_session()
             if st != 0:
-                log("open fallita 0x%x" % st); time.sleep(1.5); return
+                self._note_fail("auth", "open 0x%x" % st); return
+            self._note_ok()
             log("dialogo autorizzazione: appoggia il dito...")
             deadline = time.time() + 20
             while (self.auth.is_set() and not self.stop.is_set()
@@ -327,7 +360,7 @@ class Matcher(threading.Thread):
                 else:
                     log("dito non riconosciuto")
         except Exception as e:
-            log("auth errore: %s" % e); time.sleep(1.5)
+            self._note_fail("auth", e)
         finally:
             try:
                 if d: d.release()
