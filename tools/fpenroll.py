@@ -26,7 +26,7 @@ def main():
         s.reset(); s.handshake()
         print(GREEN + "Pronto per la registrazione." + RST +
               " Appoggia e solleva lo STESSO dito quando vedi >> (4 volte).\n", flush=True)
-        ok, last, stages, cst, handle, tid = s.enroll(target_stages=4)
+        ok, last, stages, cst, handle, tid = s.enroll(target_stages=8, max_stages=14)
         print()
         if not ok or handle == 0:
             print(RED + "Registrazione FALLITA" + RST +

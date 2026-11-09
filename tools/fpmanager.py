@@ -28,6 +28,7 @@ LINE = "#d9d9de"
 SEL = "#0a84ff"
 NCOLS = 4
 TILE_W, TILE_H = 132, 150
+STAGES = 8   # tocchi richiesti per registrare (piu' alto = template piu' robusto)
 
 
 def load_templates():
@@ -187,7 +188,8 @@ class App:
             try:
                 s = secure.SecureSession(d); s.reset(); s.handshake()
                 ok, last, stages, cst, handle, tid = s.enroll(
-                    target_stages=4, on_event=lambda m: self.q.put(("enroll_event", m)))
+                    target_stages=STAGES, max_stages=STAGES + 6,
+                    on_event=lambda m: self.q.put(("enroll_event", m)))
                 if ok and handle:
                     items = [x for x in load_templates() if x.get("handle") != handle]
                     items.append({"name": name, "handle": handle, "id": tid.hex(),
@@ -285,13 +287,14 @@ class EnrollDialog(tk.Toplevel):
 
     def redraw(self):
         self.cv.delete("all")
-        draw_fingerprint(self.cv, 110, 110, 86, filled=self.stages * (len(ARCS) / 4.0) if self.stages else 0,
-                         w=9)
-        self.cv.create_text(110, 205, text="%d / 4" % self.stages, fill=SUB, font=("SF Pro Text", 12))
+        draw_fingerprint(self.cv, 110, 110, 86,
+                         filled=self.stages * (len(ARCS) / float(STAGES)) if self.stages else 0, w=9)
+        self.cv.create_text(110, 205, text="%d / %d" % (self.stages, STAGES), fill=SUB,
+                            font=("SF Pro Text", 12))
 
     def on_event(self, m):
         if "STAGE OK" in m:
-            self.stages = min(4, self.stages + 1)
+            self.stages = min(STAGES, self.stages + 1)
             self.redraw()
             self.msg.configure(text="Bene! Solleva e riappoggia il dito…")
         elif ">> APPOGGIA" in m or "APPOGGIA" in m:
@@ -302,7 +305,7 @@ class EnrollDialog(tk.Toplevel):
     def finish(self, result):
         ok, err = result
         if ok:
-            self.stages = 4; self.redraw()
+            self.stages = STAGES; self.redraw()
             self.msg.configure(text="✅ Impronta registrata", fg="#2e7d32")
             self.after(900, self.destroy)
         else:
