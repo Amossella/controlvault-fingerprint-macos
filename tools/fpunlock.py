@@ -267,17 +267,21 @@ class Matcher(threading.Thread):
 
     def _note_fail(self, where, err):
         self._fail += 1
-        wait = min(3.0 * self._fail, 30.0)
-        log("%s errore (%d consecutivi): %s -> pausa %.0fs" % (where, self._fail, err, wait))
-        if self._fail == 3:
-            self._try_reset()   # a metà strada prova a rianimarlo
+        # Retry RAPIDO: niente pause crescenti (bloccavano l'utente col dito pronto).
+        # Reset USB ogni 3 errori per rianimare il lettore se si e' impuntato.
+        if self._fail % 3 == 0:
+            log("%s: lettore non risponde (%d) -> reset USB" % (where, self._fail))
+            self._try_reset()
+        # micro-pausa solo per non ciclare a vuoto; se il device e' davvero morto
+        # (molti errori di fila) rallenta per non martellare il chip.
+        pause = 0.3 if self._fail < 12 else 5.0
         slept = 0.0
-        while slept < wait and not self.stop.is_set():
+        while slept < pause and not self.stop.is_set():
             if where == "lock" and not self.locked.is_set():
                 break
             if where == "auth" and not self.auth.is_set():
                 break
-            time.sleep(0.5); slept += 0.5
+            time.sleep(0.3); slept += 0.3
 
     # ---- helper device ----
     def _open_session(self):
