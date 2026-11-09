@@ -156,9 +156,19 @@ class ControlVault:
 
     def release(self):
         if self._claimed:
-            usb.util.release_interface(self.dev, 0)
+            try:
+                usb.util.release_interface(self.dev, 0)
+            except Exception:
+                pass
             self._claimed = False
         self._unlock()
+
+    def __del__(self):
+        # rete di sicurezza: libera sempre il lock se l'oggetto muore senza release()
+        try:
+            self._unlock()
+        except Exception:
+            pass
 
     def active_config(self):
         return bytes(self.dev.ctrl_transfer(0x80, 8, 0, 0, 1, 1000))[0]

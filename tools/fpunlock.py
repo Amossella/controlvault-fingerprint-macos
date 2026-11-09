@@ -222,8 +222,12 @@ class Matcher(threading.Thread):
         import controlvault as C
         import secure
         d = C.ControlVault(); d.claim()
-        s = secure.SecureSession(d); s.reset(); s.handshake()
-        st, ih = s.open()
+        try:
+            s = secure.SecureSession(d); s.reset(); s.handshake()
+            st, ih = s.open()
+        except Exception:
+            d.release()   # non lasciare il lock appeso se l'handshake fallisce
+            raise
         return C, d, s, st
 
     def _try_match(self, C, d, s, handles, to_ms=1800):
