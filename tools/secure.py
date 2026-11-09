@@ -256,6 +256,22 @@ class SecureSession:
         mid = pl[32:52] if len(pl) >= 52 else pl[20:]
         return st, result, mid, mh
 
+    # descrittore oggetto "BroadcomWBF" (costante, ricavato dal commit e dal delete Windows)
+    DELETE_DESC = bytes.fromhex("0101ff0000000d000c42726f6164636f6d57424600")  # 21B
+
+    def delete_object(self, template_handle, to=6000):
+        """Cancella un template dal chip (cv_delete_object, opcode 0x0a, cat 0x43).
+        Richiede una sessione gia' aperta (open72 -> self.ihandle). Ritorna (status, payload).
+        Ricavato dalla cattura Windows: data = [ihandle][handle da cancellare][descrittore WBF]."""
+        ih = struct.pack("<I", self.ihandle)
+        th = struct.pack("<I", template_handle)
+        data = (bytes.fromhex("0000000004000000") + ih +            # param: ihandle di sessione
+                bytes.fromhex("0000000004000000") + th +            # param: handle del template
+                struct.pack("<II", 2, len(self.DELETE_DESC)) +      # tipo 2, len 0x15
+                self.DELETE_DESC + b"\x00\x00\x00")                 # descrittore + pad a 24
+        st, pl, _ = self.secure_cmd(0x0043000a, data, to=to)
+        return st, pl
+
     def wait_finger(self, to=20000):
         """Attende l'evento interrupt EP 0x85 = 0300.... (dito giu'). True se rilevato."""
         t0 = time.time()
