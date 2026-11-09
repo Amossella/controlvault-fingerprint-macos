@@ -22,20 +22,29 @@ Developed and tested on a Dell Latitude 5580 Hackintosh running macOS Sequoia (O
 | **`sudo` with fingerprint** | PAM module `pam_cvfp.so` | ✅ |
 | **Screen unlock** | user-space daemon + Accessibility autofill | ✅ |
 | **GUI manager** (add/rename/remove/verify) | `fpmanager.py`, Touch-ID-style | ✅ |
-| **System Settings "enter password" prompts** | LocalAuthentication (sealed) | ❌ *see note* |
+| **System Settings "enter password" prompts** | Secure-Input-gated CGEvent auto-type | ✅ *see note* |
 
-### Why System Settings prompts can't be done
+### How System Settings prompts work (auto-type)
 
 The admin "*enter your password to allow…*" dialogs in **System Settings** (and lock
 toggles) are drawn by macOS through **`LocalAuthenticationRemoteService`** — an
-out-of-process secure view that is **invisible to Accessibility by design**, the same
-wall that protects Touch ID / the Secure Enclave. There is no field to fill and PAM is
-not involved, so **no user-space method can automate them**. Screen unlock works only
-because the lock screen (`loginwindow`) uses a legacy, Accessibility-reachable field.
+out-of-process secure view that is **invisible to Accessibility by design** (you cannot
+read or set the field value), the same wall that protects Touch ID / the Secure Enclave.
+PAM is not involved either.
 
-This hardware **cannot emulate Apple Touch ID**: biometric matching for Touch ID happens
-inside the Secure Enclave with keys fused in Apple silicon, unreachable by any third-party
-reader or kext.
+They can still be filled by **typing**: synthetic `CGEvent` keystrokes posted at the HID
+tap **pass through Secure Input** and reach the secure field (verified on this machine —
+all characters appear as dots). So the daemon detects a focused password field via
+**`IsSecureEventInputEnabled()`**, and on a fingerprint match types the stored password
++ Return. The password is typed **only** when (a) a fingerprint matched and (b) Secure
+Input is active — i.e. only when a real password field has focus, never scattered into
+ordinary text fields. This also covers `sudo`/password prompts in Terminal and other
+apps' secure fields.
+
+This hardware still **cannot emulate Apple Touch ID**: biometric matching for Touch ID
+happens inside the Secure Enclave with keys fused in Apple silicon, unreachable by any
+third-party reader or kext. What we do instead is match on the reader's own chip and then
+*type* the password, which is why it works where Touch ID emulation cannot.
 
 ---
 
@@ -88,7 +97,7 @@ tools/            core library + tools
   fpverify.py       CLI verification
   fpauth.py         single-shot auth helper (exit 0 = match) used by PAM
   pam_cvfp.c        PAM module source
-  fpunlock.py       screen-unlock + legacy-dialog daemon
+  fpunlock.py       daemon: screen unlock + password-prompt auto-type (System Settings, sudo, …)
   install_pam.sh            install PAM module into /etc/pam.d/sudo
   install_unlock_agent.sh   install the LaunchAgent
   com.cvfp.unlock.plist     LaunchAgent definition

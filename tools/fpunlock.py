@@ -4,11 +4,15 @@
 Due funzioni:
   1) SBLOCCO SCHERMO: rileva il lock; al MATCH inserisce la password (Keychain)
      nel campo di sblocco via ACCESSIBILITY e invia Invio.
-  2) DIALOGHI DI AUTORIZZAZIONE (SecurityAgent): quando le Impostazioni di Sistema
-     o un'app chiedono "inserisci la password per consentire…", rileva la finestra
-     di SecurityAgent e, al MATCH, compila la password via Accessibility + Invio.
+  2) DIALOGHI PASSWORD (Impostazioni di Sistema, sudo in Terminale, ecc.): rileva un
+     campo password col focus tramite SECURE INPUT (IsSecureEventInputEnabled). Al MATCH
+     scrive la password + Invio via CGEvent, che buca il Secure Input anche sui dialoghi
+     LocalAuthentication delle Impostazioni (invisibili ad Accessibility). Sui vecchi
+     dialoghi SecurityAgent usa prima Accessibility, poi CGEvent come fallback.
 
-Il campo viene riempito SOLO dopo un'impronta riconosciuta — mai da solo.
+La password viene scritta SOLO (a) dopo un'impronta riconosciuta e (b) quando il
+Secure Input e' attivo, cioe' solo quando un vero campo password ha il focus — mai
+"sparsa" in campi di testo normali.
 
 Setup:
   1) Password nel Keychain:
@@ -17,7 +21,7 @@ Setup:
 
 Test:  /usr/local/bin/python3 ~/usbcfg/tools/fpunlock.py   (Ctrl+C per uscire)
 """
-import sys, os, time, threading, subprocess
+import sys, os, time, threading, subprocess, ctypes, ctypes.util
 
 TOOLS = "/Users/amoslobianco/usbcfg/tools"
 CV = "/Users/amoslobianco/usbcfg/controlvault"
@@ -35,6 +39,26 @@ from ApplicationServices import (
 
 KC_SERVICE = "cv-fp-unlock"
 RETURN_KEYCODE = 36
+
+# Carbon: Secure Input attivo => c'e' un campo password col focus (dialoghi
+# LocalAuthentication delle Impostazioni, prompt password in Terminale, ecc.).
+# Questi dialoghi sono INVISIBILI ad Accessibility, ma i CGEvent li bucano
+# (verificato sul device): quindi al match scriviamo la password via CGEvent.
+try:
+    _carbon = ctypes.CDLL(ctypes.util.find_library("Carbon") or
+                          "/System/Library/Frameworks/Carbon.framework/Carbon")
+except Exception:
+    _carbon = None
+
+
+def secure_input_active():
+    """True se un campo sicuro ha il focus da qualche parte (Secure Event Input)."""
+    if _carbon is None:
+        return False
+    try:
+        return bool(_carbon.IsSecureEventInputEnabled())
+    except Exception:
+        return False
 # nomi/bundle dei processi che mostrano il campo password (lock screen e dialoghi admin)
 SECAGENT_KEYS = ("SecurityAgent", "loginwindow", "ScreenSaver", "authorizationhost",
                  "CoreAuthenticationAgent")
@@ -127,6 +151,13 @@ def auth_dialog_pid():
         except Exception:
             pass
     return None
+
+
+def auth_present():
+    """C'e' un campo password che aspetta input? (Secure Input, o dialogo AX legacy)."""
+    if secure_input_active():
+        return True
+    return auth_dialog_pid() is not None
 
 
 def press_return():
@@ -337,25 +368,31 @@ class Matcher(threading.Thread):
             if st != 0:
                 self._note_fail("auth", "open 0x%x" % st); return
             self._note_ok()
-            log("dialogo autorizzazione: appoggia il dito...")
+            log("campo password rilevato: appoggia il dito...")
             deadline = time.time() + 20
             while (self.auth.is_set() and not self.stop.is_set()
                    and not self.locked.is_set() and time.time() < deadline):
-                if auth_dialog_pid() is None:
-                    log("dialogo chiuso"); break
+                if not auth_present():
+                    log("campo password chiuso"); break
                 res = self._try_match(C, d, s, handles, to_ms=1500)
                 if res is None:
                     continue
                 if res == 1:
-                    log("impronta OK -> compilo il dialogo")
-                    fill_auth(pw)
+                    log("impronta OK -> scrivo la password")
+                    # AX funziona solo sui dialoghi legacy; i dialoghi
+                    # LocalAuthentication (Impostazioni) sono invisibili ad AX,
+                    # ma i CGEvent bucano il Secure Input -> fallback sempre.
+                    if not fill_auth(pw):
+                        type_unicode(pw)
+                        time.sleep(0.15)
+                        press_return()
                     waited = 0.0
-                    while auth_dialog_pid() is not None and waited < 6.0:
+                    while auth_present() and waited < 6.0:
                         time.sleep(0.5); waited += 0.5
-                    if auth_dialog_pid() is None:
+                    if not auth_present():
                         log("autorizzato ✓")
                     else:
-                        log("dialogo ancora presente (AX bloccato?)")
+                        log("campo ancora presente (password errata?)")
                     break
                 else:
                     log("dito non riconosciuto")
@@ -378,7 +415,8 @@ class Matcher(threading.Thread):
 
 
 class AuthWatcher(threading.Thread):
-    """Sorveglia la comparsa di un dialogo SecurityAgent (fuori dal lock schermo)."""
+    """Sorveglia la comparsa di un campo password (Secure Input o dialogo AX legacy),
+    fuori dal lock schermo."""
     def __init__(self, matcher):
         super().__init__(daemon=True)
         self.m = matcher
@@ -390,8 +428,8 @@ class AuthWatcher(threading.Thread):
                 continue
             if time.time() < self.m.auth_cooldown:
                 continue
-            if auth_dialog_pid() is not None:
-                log("rilevato dialogo di autorizzazione")
+            if auth_present():
+                log("rilevato campo password (richiesta autorizzazione)")
                 self.m.auth.set()
 
 
