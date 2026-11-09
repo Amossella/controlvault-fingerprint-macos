@@ -215,14 +215,48 @@ class App:
         save_templates(items); self.render()
 
     def remove(self, idx):
+        if self.busy:
+            return
         items = load_templates()
         if idx >= len(items):
             return
-        name = items[idx].get("name") or "questa impronta"
+        t = items[idx]
+        name = t.get("name") or "questa impronta"
+        handle = t.get("handle")
         if not messagebox.askyesno("Rimuovi impronta",
-                "Rimuovere '%s'?\nNon sarà più usata per sudo e sblocco." % name):
+                "Rimuovere '%s'?\nVerrà cancellata dal lettore e non sarà più usata." % name):
             return
-        del items[idx]; save_templates(items); self.render()
+        self._set_busy(True); self.set_status("Rimozione dal chip…", "#ef6c00")
+        threading.Thread(target=self._do_remove, args=(handle, name), daemon=True).start()
+
+    def _do_remove(self, handle, name):
+        chip_ok = None
+        try:
+            if handle:
+                import controlvault as C
+                import secure
+                d = C.ControlVault(); d.claim()
+                try:
+                    s = secure.SecureSession(d); s.reset(); s.handshake()
+                    st, ih = s.open72()
+                    if st == 0:
+                        st2, _ = s.delete_object(handle)
+                        chip_ok = (st2 == 0)
+                    else:
+                        chip_ok = False
+                finally:
+                    d.release()
+        except Exception:
+            chip_ok = False
+        # scollega comunque dal JSON (non più usata per sudo/sblocco)
+        save_templates([x for x in load_templates() if x.get("handle") != handle])
+        if chip_ok:
+            self.set_status("✅ '%s' cancellata dal chip" % name, "#2e7d32")
+        elif handle:
+            self.set_status("'%s' scollegata (chip non confermato)" % name, "#ef6c00")
+        else:
+            self.set_status("'%s' rimossa" % name, SUB)
+        self.q.put(("done", None))
 
     def on_verify(self):
         if self.busy or not load_templates():

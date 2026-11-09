@@ -137,9 +137,9 @@ vary the angle each touch for a more tolerant template). Templates are saved to
 
 Or via CLI: `/usr/local/bin/python3 tools/fpenroll.py`.
 
-> **Removing a finger** unlinks it so it is no longer used for `sudo`/unlock. Erasing the
-> template from the reader's own chip is not yet implemented — it needs a Windows capture
-> of a delete operation (see `controlvault/ISTRUZIONI_CATTURA_DELETE.md`).
+> **Removing a finger** erases the template from the reader's own chip (`cv_delete_object`,
+> opcode `0x0a`) and unlinks it from `sudo`/unlock. CLI: `fpdelete.py <handle>`
+> (`--list` shows handles).
 
 ### 2. `sudo` with fingerprint
 
