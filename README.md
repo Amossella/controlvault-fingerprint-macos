@@ -105,6 +105,24 @@ win_re/           Windows DLL analysis scripts (vendor binaries excluded)
 
 ---
 
+## Quick install
+
+One command installs the Python dependencies, the PAM module for `sudo`, the
+screen-unlock daemon and the FP Manager app:
+
+```bash
+bash tools/install.sh
+```
+
+It asks for your admin password (for the PAM step) and your login password (stored
+in the Keychain, used only to fill the unlock field), and prints the Accessibility
+permission step at the end. Skip parts with `--no-pam`, `--no-unlock`, `--no-app`.
+Remove everything with `bash tools/uninstall.sh`.
+
+The manual steps below are the equivalent, if you prefer to do them one by one.
+
+---
+
 ## Usage
 
 ### 1. Enroll (GUI)
@@ -113,10 +131,15 @@ win_re/           Windows DLL analysis scripts (vendor binaries excluded)
 /usr/local/bin/python3 tools/fpmanager.py
 ```
 
-Click **Aggiungi impronta**, follow the animated fingerprint (lift & touch 4 times).
-Templates are saved to `controlvault/mac_template.json`.
+Click **Aggiungi impronta** and follow the animated fingerprint (lift & touch 8 times;
+vary the angle each touch for a more tolerant template). Templates are saved to
+`controlvault/mac_template.json`.
 
 Or via CLI: `/usr/local/bin/python3 tools/fpenroll.py`.
+
+> **Removing a finger** unlinks it so it is no longer used for `sudo`/unlock. Erasing the
+> template from the reader's own chip is not yet implemented — it needs a Windows capture
+> of a delete operation (see `controlvault/ISTRUZIONI_CATTURA_DELETE.md`).
 
 ### 2. `sudo` with fingerprint
 
