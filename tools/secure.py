@@ -26,18 +26,32 @@ class SecureSession:
         rlen = struct.unpack_from("<I", notif, 4)[0] if len(notif) >= 8 else 512
         return bytes(self.d.dev.read(C.EP_IN, max(rlen, 64), timeout=to)), notif
 
-    def handshake(self, reinit=True):
-        if reinit:
-            self.d.init()
-        hn = os.urandom(20)
-        r = self.d.transact(C.build_envelope(0x00410023, hn + b"\x00" * 4, counter=2))
-        n = cvcrypto.device_pubkey_from_0x23(r["data"])
-        dn = cvcrypto.device_nonce_from_0x23(r["data"])
-        self.handle = r["handle"]
-        self.d.transact(C.build_envelope(0x00410024, cvcrypto.rsa_pkcs1v15_encrypt_le(hn, n),
-                                         counter=2, handle=self.handle))
-        self.ak, self.hk = cvcrypto.session_keys(hn, dn)
-        return True
+    def handshake(self, reinit=True, retries=3):
+        """Handshake RSA con il lettore. Valida la chiave pubblica e ritenta se il
+        lettore risponde vuoto/parziale (evita 'pow() 3rd argument cannot be 0')."""
+        last = None
+        for attempt in range(retries):
+            try:
+                if reinit:
+                    self.d.init()
+                hn = os.urandom(20)
+                r = self.d.transact(C.build_envelope(0x00410023, hn + b"\x00" * 4, counter=2))
+                data = r.get("data", b"") or b""
+                n = cvcrypto.device_pubkey_from_0x23(data)
+                dn = cvcrypto.device_nonce_from_0x23(data)
+                if len(data) < 256 or not n or n.bit_length() < 2000 or len(dn) < 20:
+                    raise RuntimeError("chiave pubblica non valida (risposta %dB)" % len(data))
+                self.handle = r["handle"]
+                self.d.transact(C.build_envelope(0x00410024,
+                                                 cvcrypto.rsa_pkcs1v15_encrypt_le(hn, n),
+                                                 counter=2, handle=self.handle))
+                self.ak, self.hk = cvcrypto.session_keys(hn, dn)
+                return True
+            except Exception as e:
+                last = e
+                time.sleep(0.3)
+        raise RuntimeError("handshake fallito dopo %d tentativi (lettore non pronto): %s"
+                           % (retries, last))
 
     def secure_cmd(self, cmd_word, data, to=6000, hmac_seq=None):
         """Invia un comando sicuro, ritorna (status, plaintext_data).
