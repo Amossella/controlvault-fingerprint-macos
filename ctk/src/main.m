@@ -34,10 +34,14 @@ int main(int argc, const char *argv[]) {
             [[TKTokenKeychainKey alloc] initWithCertificate:cert objectID:objID];
         keyItem.label = @"ControlVault Fingerprint";
         keyItem.canSign = YES;
+        keyItem.canDecrypt = YES;          // serve per sbloccare il portachiavi di login
         keyItem.suitableForLogin = YES;
-        // Constraint custom "fp": il sistema, prima di ogni firma, chiama
+        // Constraint custom "fp": il sistema, prima di ogni firma/decrypt, chiama
         // beginAuthForOperation nell'estensione, che richiede l'impronta via helper.
-        keyItem.constraints = @{ @(TKTokenOperationSignData): @"fp" };
+        keyItem.constraints = @{
+            @(TKTokenOperationSignData):    @"fp",
+            @(TKTokenOperationDecryptData): @"fp",
+        };
         CFRelease(cert);
 
         // --- (ri)crea la token-config e popola l'identità ---

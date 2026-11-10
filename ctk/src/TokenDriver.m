@@ -88,17 +88,25 @@ static SecKeyRef FPCopyPrivateKey(void) {
              usingKey:(TKTokenObjectID)keyObjectID
             algorithm:(TKTokenKeyAlgorithm *)algorithm {
     FPLog(@"supportsOperation op=%ld key=%@", (long)operation, keyObjectID);
-    if (operation != TKTokenOperationSignData) return NO;
     (void)keyObjectID;
-    // Firma RSA: accettiamo gli algoritmi PKCS#1 v1.5 (raw + digest) che
-    // il login/sblocco di macOS negozia.
-    return [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureRaw]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15Raw]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA384]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA512]
-        || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256];
+    if (operation == TKTokenOperationSignData) {
+        // Firma RSA: PKCS#1 v1.5 (raw + digest) che login/sblocco negoziano.
+        return [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureRaw]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15Raw]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA384]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA512]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256];
+    }
+    if (operation == TKTokenOperationDecryptData) {
+        // Decrypt/unwrap RSA: serve per sbloccare il portachiavi di login.
+        return [algorithm supportsAlgorithm:kSecKeyAlgorithmRSAEncryptionRaw]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSAEncryptionPKCS1]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSAEncryptionOAEPSHA1]
+            || [algorithm supportsAlgorithm:kSecKeyAlgorithmRSAEncryptionOAEPSHA256];
+    }
+    return NO;
 }
 
 // Gate impronta (via di sistema): chiamato prima di signData quando la chiave ha
@@ -117,24 +125,29 @@ static SecKeyRef FPCopyPrivateKey(void) {
     return [[TKTokenAuthOperation alloc] init];
 }
 
+// GARANZIA del gate: nessuna operazione crittografica senza impronta.
+// Se il sistema ha già chiamato beginAuth (finestra ancora valida) non
+// ri-chiediamo il dito; altrimenti (es. SecKey* diretta) verifichiamo qui.
+// Un match apre una finestra (vedi verifyFingerprint) valida per TUTTE le
+// operazioni del flusso (es. sc_auth pair ne fa diverse): non la consumiamo.
+- (BOOL)ensureAuthedFor:(NSString *)what error:(NSError **)error {
+    BOOL fresh = (_authedUntil != nil && [_authedUntil timeIntervalSinceNow] > 0);
+    if (!fresh && ![self verifyFingerprint]) {
+        FPLog(@"%@ BLOCCATO: impronta non verificata", what);
+        if (error) *error = [NSError errorWithDomain:TKErrorDomain
+            code:TKErrorCodeAuthenticationFailed
+            userInfo:@{ NSLocalizedDescriptionKey: @"impronta non riconosciuta" }];
+        return NO;
+    }
+    return YES;
+}
+
 - (NSData *)tokenSession:(TKTokenSession *)session
                 signData:(NSData *)dataToSign
                 usingKey:(TKTokenObjectID)keyObjectID
                algorithm:(TKTokenKeyAlgorithm *)algorithm
                    error:(NSError **)error {
-    // GARANZIA: nessuna firma senza impronta. Se il sistema ha già chiamato
-    // beginAuth con successo (finestra ancora valida) non ri-chiediamo il dito;
-    // altrimenti (es. chiamata diretta a SecKeyCreateSignature) verifichiamo qui.
-    // Un match apre una finestra di 10s valida per TUTTE le firme del flusso
-    // (es. sc_auth pair ne fa diverse): non la consumiamo alla prima firma.
-    BOOL fresh = (_authedUntil != nil && [_authedUntil timeIntervalSinceNow] > 0);
-    if (!fresh && ![self verifyFingerprint]) {
-        FPLog(@"signData BLOCCATO: impronta non verificata");
-        if (error) *error = [NSError errorWithDomain:TKErrorDomain
-            code:TKErrorCodeAuthenticationFailed
-            userInfo:@{ NSLocalizedDescriptionKey: @"impronta non riconosciuta" }];
-        return nil;
-    }
+    if (![self ensureAuthedFor:@"signData" error:error]) return nil;
     SecKeyRef priv = FPCopyPrivateKey();
     if (priv == NULL) {
         if (error) *error = [NSError errorWithDomain:TKErrorDomain
@@ -173,6 +186,49 @@ static SecKeyRef FPCopyPrivateKey(void) {
     }
     FPLog(@"signData firma OK (%ld byte)", (long)CFDataGetLength(sig));
     return (__bridge_transfer NSData *)sig;
+}
+
+// Decrypt/unwrap RSA (sblocco portachiavi di login), gated dall'impronta.
+- (NSData *)tokenSession:(TKTokenSession *)session
+             decryptData:(NSData *)ciphertext
+                usingKey:(TKTokenObjectID)keyObjectID
+               algorithm:(TKTokenKeyAlgorithm *)algorithm
+                   error:(NSError **)error {
+    if (![self ensureAuthedFor:@"decryptData" error:error]) return nil;
+    SecKeyRef priv = FPCopyPrivateKey();
+    if (priv == NULL) {
+        if (error) *error = [NSError errorWithDomain:TKErrorDomain
+                                                code:TKErrorCodeTokenNotFound userInfo:nil];
+        return nil;
+    }
+    SecKeyAlgorithm secAlg = NULL;
+    SecKeyAlgorithm candidates[] = {
+        kSecKeyAlgorithmRSAEncryptionPKCS1,
+        kSecKeyAlgorithmRSAEncryptionRaw,
+        kSecKeyAlgorithmRSAEncryptionOAEPSHA256,
+        kSecKeyAlgorithmRSAEncryptionOAEPSHA1,
+    };
+    for (size_t i = 0; i < sizeof(candidates)/sizeof(candidates[0]); i++) {
+        if ([algorithm supportsAlgorithm:candidates[i]]) { secAlg = candidates[i]; break; }
+    }
+    if (secAlg == NULL) {
+        CFRelease(priv);
+        if (error) *error = [NSError errorWithDomain:TKErrorDomain
+                                                code:TKErrorCodeBadParameter userInfo:nil];
+        return nil;
+    }
+    CFErrorRef cfErr = NULL;
+    CFDataRef plain = SecKeyCreateDecryptedData(priv, secAlg,
+                                                (__bridge CFDataRef)ciphertext, &cfErr);
+    CFRelease(priv);
+    if (plain == NULL) {
+        FPLog(@"decryptData fallita: %@", (__bridge NSError *)cfErr);
+        if (error) *error = (__bridge_transfer NSError *)cfErr;
+        else if (cfErr) CFRelease(cfErr);
+        return nil;
+    }
+    FPLog(@"decryptData OK (%ld byte)", (long)CFDataGetLength(plain));
+    return (__bridge_transfer NSData *)plain;
 }
 
 @end
