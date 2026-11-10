@@ -55,8 +55,9 @@ static SecKeyRef FPCopyPrivateKey(void) {
 @implementation FPTokenSession
 
 // Esegue la verifica impronta tramite l'helper XPC. Ritorna YES solo su match.
-// Su successo apre una breve finestra (10s) in cui signData può firmare senza
-// ri-chiedere il dito (così un singolo flusso di login = un solo tocco).
+// Su successo apre una breve finestra (20s) in cui signData può firmare senza
+// ri-chiedere il dito (così un singolo flusso — login o sc_auth pair, che fa più
+// firme — richiede un solo tocco).
 - (BOOL)verifyFingerprint {
     __block BOOL ok = NO;
     __block NSString *why = @"nessuna risposta";
@@ -77,7 +78,7 @@ static SecKeyRef FPCopyPrivateKey(void) {
     dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(32 * NSEC_PER_SEC)));
     [c invalidate];
     FPLog(@"verifyFingerprint ok=%d (%@)", ok, why);
-    if (ok) _authedUntil = [NSDate dateWithTimeIntervalSinceNow:10.0];
+    if (ok) _authedUntil = [NSDate dateWithTimeIntervalSinceNow:20.0];
     return ok;
 }
 
@@ -124,6 +125,8 @@ static SecKeyRef FPCopyPrivateKey(void) {
     // GARANZIA: nessuna firma senza impronta. Se il sistema ha già chiamato
     // beginAuth con successo (finestra ancora valida) non ri-chiediamo il dito;
     // altrimenti (es. chiamata diretta a SecKeyCreateSignature) verifichiamo qui.
+    // Un match apre una finestra di 10s valida per TUTTE le firme del flusso
+    // (es. sc_auth pair ne fa diverse): non la consumiamo alla prima firma.
     BOOL fresh = (_authedUntil != nil && [_authedUntil timeIntervalSinceNow] > 0);
     if (!fresh && ![self verifyFingerprint]) {
         FPLog(@"signData BLOCCATO: impronta non verificata");
@@ -132,7 +135,6 @@ static SecKeyRef FPCopyPrivateKey(void) {
             userInfo:@{ NSLocalizedDescriptionKey: @"impronta non riconosciuta" }];
         return nil;
     }
-    _authedUntil = nil;   // consuma l'autorizzazione (una firma per match)
     SecKeyRef priv = FPCopyPrivateKey();
     if (priv == NULL) {
         if (error) *error = [NSError errorWithDomain:TKErrorDomain
