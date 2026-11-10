@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cvfp.fphelper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/amoslobianco/usbcfg/ctk/helper/fphelper</string>
+    </array>
+    <!-- launchd registra e possiede il Mach service; l'estensione sandboxata lo
+         raggiunge grazie all'entitlement temporary-exception.mach-lookup. -->
+    <key>MachServices</key>
+    <dict>
+        <key>com.cvfp.fphelper</key>
+        <true/>
+    </dict>
+    <key>KeepAlive</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/fphelper.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/fphelper.out</string>
+</dict>
+</plist>

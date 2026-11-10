@@ -1,0 +1,333 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		300000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* main.m */; };
+		300000000000000000000002 /* TokenDriver.m in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* TokenDriver.m */; };
+		300000000000000000000003 /* FPToken.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* FPToken.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		800000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 400000000000000000000002;
+			remoteInfo = FPToken;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		500000000000000000000004 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				300000000000000000000003 /* FPToken.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		200000000000000000000002 /* TokenDriver.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TokenDriver.m; sourceTree = "<group>"; };
+		200000000000000000000003 /* app-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "app-Info.plist"; sourceTree = "<group>"; };
+		200000000000000000000004 /* ext-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "ext-Info.plist"; sourceTree = "<group>"; };
+		200000000000000000000005 /* token.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = token.entitlements; sourceTree = "<group>"; };
+		200000000000000000000006 /* FPTokenApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FPTokenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000007 /* FPToken.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FPToken.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		500000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		500000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		100000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000004 /* src */,
+				200000000000000000000003 /* app-Info.plist */,
+				200000000000000000000004 /* ext-Info.plist */,
+				200000000000000000000005 /* token.entitlements */,
+				100000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		100000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000006 /* FPTokenApp.app */,
+				200000000000000000000007 /* FPToken.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		100000000000000000000004 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000001 /* main.m */,
+				200000000000000000000002 /* TokenDriver.m */,
+			);
+			path = src;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		400000000000000000000001 /* FPTokenApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 600000000000000000000002 /* Build configuration list for PBXNativeTarget "FPTokenApp" */;
+			buildPhases = (
+				500000000000000000000001 /* Sources */,
+				500000000000000000000002 /* Frameworks */,
+				500000000000000000000004 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				800000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = FPTokenApp;
+			productName = FPTokenApp;
+			productReference = 200000000000000000000006 /* FPTokenApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		400000000000000000000002 /* FPToken */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 600000000000000000000003 /* Build configuration list for PBXNativeTarget "FPToken" */;
+			buildPhases = (
+				500000000000000000000005 /* Sources */,
+				500000000000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FPToken;
+			productName = FPToken;
+			productReference = 200000000000000000000007 /* FPToken.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		100000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					400000000000000000000001 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					400000000000000000000002 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
+			};
+			buildConfigurationList = 600000000000000000000001 /* Build configuration list for PBXProject "FPToken" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 100000000000000000000002;
+			productRefGroup = 100000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				400000000000000000000001 /* FPTokenApp */,
+				400000000000000000000002 /* FPToken */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		500000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				300000000000000000000001 /* main.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		500000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				300000000000000000000002 /* TokenDriver.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		800000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 400000000000000000000002 /* FPToken */;
+			targetProxy = 800000000000000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		700000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		700000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		700000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				INFOPLIST_FILE = "app-Info.plist";
+				OTHER_LDFLAGS = (
+					"-framework",
+					Foundation,
+					"-framework",
+					CryptoTokenKit,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cvfp.FPTokenApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		700000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				INFOPLIST_FILE = "app-Info.plist";
+				OTHER_LDFLAGS = (
+					"-framework",
+					Foundation,
+					"-framework",
+					CryptoTokenKit,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cvfp.FPTokenApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		700000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				INFOPLIST_FILE = "ext-Info.plist";
+				OTHER_LDFLAGS = (
+					"-framework",
+					Foundation,
+					"-framework",
+					CryptoTokenKit,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cvfp.FPTokenApp.Token;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		700000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DNRC8776QF;
+				INFOPLIST_FILE = "ext-Info.plist";
+				OTHER_LDFLAGS = (
+					"-framework",
+					Foundation,
+					"-framework",
+					CryptoTokenKit,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cvfp.FPTokenApp.Token;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		600000000000000000000001 /* Build configuration list for PBXProject "FPToken" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				700000000000000000000001 /* Debug */,
+				700000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		600000000000000000000002 /* Build configuration list for PBXNativeTarget "FPTokenApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				700000000000000000000003 /* Debug */,
+				700000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		600000000000000000000003 /* Build configuration list for PBXNativeTarget "FPToken" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				700000000000000000000005 /* Debug */,
+				700000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 100000000000000000000001 /* Project object */;
+}

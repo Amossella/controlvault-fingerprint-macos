@@ -32,6 +32,20 @@ controlvault/fpunlock.log
 controlvault/mac_template.json
 tools/enroll_state.json
 
+# --- CTK token: chiave privata e materiale d'identità (NON distribuire) ---
+ctk/id/*.pem
+ctk/id/*.der
+ctk/src/IdentityMaterial.h
+# build Xcode / bundle del token
+ctk/build-xc/
+ctk/xcbuild/
+ctk/build/
+ctk/helper/fphelper
+ctk/helper/*.o
+# stato utente Xcode
+ctk/**/xcuserdata/
+*.xcuserstate
+
 # --- editor / OS cruft ---
 .DS_Store
 *.bak
