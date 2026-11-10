@@ -36,10 +36,10 @@ int main(int argc, const char *argv[]) {
         keyItem.canSign = YES;
         keyItem.canDecrypt = YES;          // serve per sbloccare il portachiavi di login
         keyItem.suitableForLogin = YES;
-        // Constraint @YES = "sempre permesso SENZA auth di sistema": così macOS NON
-        // mostra il campo PIN (il suo modello smartcard non si adatta all'impronta).
-        // La sicurezza NON cala: l'impronta è imposta DENTRO signData/decryptData
-        // (vedi -ensureAuthedFor:), che gira comunque per ogni operazione del token.
+        // Constraint @YES = nessuna auth di sistema → niente campo PIN; l'impronta
+        // è imposta DENTRO signData/decryptData (ensureAuthedFor). È la config
+        // migliore: sudo a impronta senza PIN. (Il login-al-boot non è ottenibile:
+        // il loginwindow di macOS non ingaggia un token a impronta.)
         keyItem.constraints = @{
             @(TKTokenOperationSignData):    @YES,
             @(TKTokenOperationDecryptData): @YES,
