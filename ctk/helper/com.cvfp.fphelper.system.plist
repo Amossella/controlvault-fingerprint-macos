@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cvfp.fphelper</string>
+    <!-- Binario in posizione root-owned (launchd rifiuta i daemon di sistema il
+         cui programma è scrivibile dall'utente). -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/libexec/fphelper</string>
+    </array>
+    <!-- Mach service nel dominio di SISTEMA: raggiungibile sia dal loginwindow
+         (ctkd di sistema) sia dalle sessioni utente. -->
+    <key>MachServices</key>
+    <dict>
+        <key>com.cvfp.fphelper</key>
+        <true/>
+    </dict>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardErrorPath</key>
+    <string>/var/log/fphelper.err</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/fphelper.out</string>
+</dict>
+</plist>
