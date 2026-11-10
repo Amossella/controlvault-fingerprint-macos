@@ -36,11 +36,13 @@ int main(int argc, const char *argv[]) {
         keyItem.canSign = YES;
         keyItem.canDecrypt = YES;          // serve per sbloccare il portachiavi di login
         keyItem.suitableForLogin = YES;
-        // Constraint custom "fp": il sistema, prima di ogni firma/decrypt, chiama
-        // beginAuthForOperation nell'estensione, che richiede l'impronta via helper.
+        // Constraint @YES = "sempre permesso SENZA auth di sistema": così macOS NON
+        // mostra il campo PIN (il suo modello smartcard non si adatta all'impronta).
+        // La sicurezza NON cala: l'impronta è imposta DENTRO signData/decryptData
+        // (vedi -ensureAuthedFor:), che gira comunque per ogni operazione del token.
         keyItem.constraints = @{
-            @(TKTokenOperationSignData):    @"fp",
-            @(TKTokenOperationDecryptData): @"fp",
+            @(TKTokenOperationSignData):    @YES,
+            @(TKTokenOperationDecryptData): @YES,
         };
         CFRelease(cert);
 
