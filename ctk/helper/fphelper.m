@@ -14,9 +14,21 @@ static NSString * const kScript = @"/Users/amoslobianco/usbcfg/tools/fpauth.py";
 
 @implementation FPHelper
 
+// Avvisa l'utente (notifica + suono) che deve appoggiare il dito. Non blocca.
+static void FPCue(void) {
+    @try {
+        NSTask *t = [[NSTask alloc] init];
+        t.executableURL = [NSURL fileURLWithPath:@"/usr/bin/osascript"];
+        t.arguments = @[ @"-e",
+            @"display notification \"Appoggia il dito sul sensore\" with title \"ControlVault\" sound name \"Ping\"" ];
+        [t launchAndReturnError:nil];
+    } @catch (NSException *e) { /* best effort */ }
+}
+
 - (void)verifyFingerprintWithTimeout:(double)timeout
                                reply:(void (^)(BOOL, NSString *))reply {
     NSLog(@"[fphelper] richiesta verifica impronta (timeout=%.0f)", timeout);
+    FPCue();
     @try {
         NSTask *t = [[NSTask alloc] init];
         t.executableURL = [NSURL fileURLWithPath:kPython];
