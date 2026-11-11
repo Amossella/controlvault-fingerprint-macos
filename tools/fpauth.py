@@ -37,6 +37,18 @@ def main():
     ap.add_argument("--user", default="")
     args = ap.parse_args()
 
+    # Arbitro unico: se il servizio fparbiterd è attivo, NON apriamo il lettore
+    # qui — glielo chiediamo (evita contese/0B col demone e la GUI).
+    try:
+        import fpclient
+        if fpclient.available():
+            ok = fpclient.verify(args.timeout)
+            log("[impronta] " + ("riconosciuta ✓" if ok
+                                  else "non riconosciuta — uso la password"))
+            return 0 if ok else 1
+    except Exception:
+        pass   # arbitro non disponibile → fallback diretto qui sotto
+
     handles = load_handles()
     if not handles:
         log("[impronta] nessun template registrato — uso la password")

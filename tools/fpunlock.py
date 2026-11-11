@@ -37,6 +37,11 @@ from ApplicationServices import (
     kAXFocusedUIElementAttribute, kAXValueAttribute, kAXRoleAttribute,
     kAXWindowsAttribute, kAXChildrenAttribute)
 
+try:
+    import fpclient   # client dell'arbitro unico del lettore (fparbiterd)
+except Exception:
+    fpclient = None
+
 KC_SERVICE = "cv-fp-unlock"
 RETURN_KEYCODE = 36
 
@@ -334,11 +339,59 @@ class Matcher(threading.Thread):
         except Exception:
             return []
 
+    # ---- percorsi ARBITRO: il match lo fa fparbiterd; qui si scrive solo la password ----
+    def _handle_lock_arbiter(self):
+        log("schermo bloccato (arbitro): appoggia il dito...")
+        while self.locked.is_set() and not self.stop.is_set():
+            r = fpclient.call({"cmd": "verify", "timeout": 8.0}, wait=18.0)
+            if r.get("error") == "no-arbiter":
+                log("arbitro non raggiungibile → fallback diretto"); return
+            if not r.get("ok"):
+                continue   # timeout / non riconosciuto: ritenta finché bloccato
+            pw = get_password()
+            if not pw:
+                log("password non nel Keychain"); return
+            log("impronta OK -> sblocco")
+            do_unlock(pw)
+            waited = 0.0
+            while self.locked.is_set() and waited < 8.0:
+                time.sleep(0.5); waited += 0.5
+            if not self.locked.is_set():
+                log("sbloccato ✓"); return
+            log("ancora bloccato: ritento tra 3s"); time.sleep(3.0)
+
+    def _handle_auth_arbiter(self, pw):
+        log("campo password rilevato (arbitro): appoggia il dito...")
+        deadline = time.time() + 20
+        while (self.auth.is_set() and not self.stop.is_set()
+               and not self.locked.is_set() and time.time() < deadline):
+            if not auth_present():
+                log("campo password chiuso"); break
+            r = fpclient.call({"cmd": "verify", "timeout": 8.0}, wait=18.0)
+            if r.get("error") == "no-arbiter":
+                log("arbitro non raggiungibile → fallback diretto"); return
+            if not r.get("ok"):
+                continue
+            log("impronta OK -> scrivo la password")
+            if not fill_auth(pw):
+                clear_field()
+                type_unicode(pw)
+                time.sleep(0.15)
+                press_return()
+            waited = 0.0
+            while auth_present() and waited < 6.0:
+                time.sleep(0.5); waited += 0.5
+            log("autorizzato ✓" if not auth_present()
+                else "campo ancora presente (password errata?)")
+            break
+
     # ---- flusso sblocco schermo ----
     def handle_lock(self):
         handles = self._handles()
         if not handles:
             log("nessun template registrato"); self.locked.clear(); return
+        if fpclient and fpclient.available():
+            self._handle_lock_arbiter(); return
         C = d = None
         try:
             C, d, s, st = self._open_session()
@@ -377,6 +430,12 @@ class Matcher(threading.Thread):
         pw = get_password()
         if not handles or not pw:
             self.auth.clear(); self.auth_cooldown = time.time() + 3; return
+        if fpclient and fpclient.available():
+            try:
+                self._handle_auth_arbiter(pw)
+            finally:
+                self.auth.clear(); self.auth_cooldown = time.time() + 3
+            return
         C = d = None
         try:
             C, d, s, st = self._open_session()

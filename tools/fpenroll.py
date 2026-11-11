@@ -19,6 +19,23 @@ GREEN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"; RST = "\033[0m"
 
 
 def main():
+    # Arbitro unico: se fparbiterd è attivo, registra TRAMITE lui (niente contese
+    # col demone → niente più "handshake 0B"). Perde la barra per-stadio ma è robusto.
+    try:
+        import fpclient
+        if fpclient.available():
+            print("Registrazione via FP Arbiter — appoggia e solleva lo STESSO dito "
+                  "ripetutamente quando il sensore si illumina...", flush=True)
+            r = fpclient.call({"cmd": "enroll"}, wait=120.0)
+            if r.get("ok"):
+                print(GREEN + "✅ REGISTRATA." + RST +
+                      " handle=0x%x  (%d impronta/e totali)" % (r.get("handle", 0), r.get("count", 0)))
+            else:
+                print(RED + "Registrazione FALLITA" + RST + ": %s" % r.get("error"))
+            return
+    except Exception:
+        pass   # arbitro assente → enroll diretto qui sotto
+
     d = C.ControlVault(); d.claim()
     print("Connessione al lettore...", flush=True)
     try:

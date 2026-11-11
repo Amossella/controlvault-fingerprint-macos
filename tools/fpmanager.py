@@ -182,6 +182,19 @@ class App:
 
     def _do_enroll(self, name):
         try:
+            import fpclient
+            if fpclient.available():
+                r = fpclient.call({"cmd": "enroll"}, wait=120.0)
+                if r.get("ok"):
+                    items = load_templates()
+                    for it in items:
+                        if it.get("handle") == r.get("handle") and not it.get("name"):
+                            it["name"] = name
+                    save_templates(items)
+                    self.q.put(("enroll_done", (True, "")))
+                else:
+                    self.q.put(("enroll_done", (False, r.get("error", "fallita"))))
+                return
             import controlvault as C
             import secure
             d = C.ControlVault(); d.claim()
@@ -232,6 +245,18 @@ class App:
     def _do_remove(self, handle, name):
         chip_ok = None
         try:
+            import fpclient
+            if fpclient.available():
+                r = fpclient.call({"cmd": "remove", "handle": handle}, wait=30.0)
+                chip = r.get("chip")
+                if chip:
+                    self.set_status("✅ '%s' cancellata dal chip" % name, "#2e7d32")
+                elif handle:
+                    self.set_status("'%s' scollegata (chip non confermato)" % name, "#ef6c00")
+                else:
+                    self.set_status("'%s' rimossa" % name, SUB)
+                self.q.put(("done", None))
+                return
             if handle:
                 import controlvault as C
                 import secure
@@ -268,6 +293,12 @@ class App:
 
     def _do_verify(self):
         try:
+            import fpclient
+            if fpclient.available():
+                ok = fpclient.verify(15.0)
+                self.set_status("✅ Riconosciuta" if ok else "❌ Non riconosciuta",
+                                "#2e7d32" if ok else "#c62828")
+                return
             import controlvault as C
             import secure
             handles = [t["handle"] for t in load_templates() if t.get("handle")]
