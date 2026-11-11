@@ -347,7 +347,11 @@ class Matcher(threading.Thread):
             if r.get("error") == "no-arbiter":
                 log("arbitro non raggiungibile → fallback diretto"); return
             if not r.get("ok"):
-                continue   # timeout / non riconosciuto: ritenta finché bloccato
+                # timeout / non riconosciuto: ritenta subito. Errore del lettore
+                # (risposta immediata): pausa, o si martella il chip a vuoto.
+                if r.get("error") not in ("timeout", "non riconosciuta"):
+                    time.sleep(1.0)
+                continue
             pw = get_password()
             if not pw:
                 log("password non nel Keychain"); return
@@ -371,7 +375,13 @@ class Matcher(threading.Thread):
             if r.get("error") == "no-arbiter":
                 log("arbitro non raggiungibile → fallback diretto"); return
             if not r.get("ok"):
+                if r.get("error") not in ("timeout", "non riconosciuta"):
+                    time.sleep(1.0)
                 continue
+            # la verifica può durare secondi: se nel frattempo il campo password è
+            # sparito, NON digitare (finirebbe nella finestra che ha il focus).
+            if not auth_present():
+                log("campo password chiuso durante la verifica: non scrivo"); break
             log("impronta OK -> scrivo la password")
             if not fill_auth(pw):
                 clear_field()
@@ -452,6 +462,8 @@ class Matcher(threading.Thread):
                 if res is None:
                     continue
                 if res == 1:
+                    if not auth_present():
+                        log("campo password chiuso durante la verifica: non scrivo"); break
                     log("impronta OK -> scrivo la password")
                     # AX funziona solo sui dialoghi legacy; i dialoghi
                     # LocalAuthentication (Impostazioni) sono invisibili ad AX,

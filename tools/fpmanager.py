@@ -184,7 +184,8 @@ class App:
         try:
             import fpclient
             if fpclient.available():
-                r = fpclient.call({"cmd": "enroll"}, wait=120.0)
+                r = fpclient.call_stream({"cmd": "enroll"},
+                        on_event=lambda m: self.q.put(("enroll_event", m)), wait=120.0)
                 if r.get("ok"):
                     items = load_templates()
                     for it in items:

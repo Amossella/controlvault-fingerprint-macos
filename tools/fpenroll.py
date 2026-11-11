@@ -26,7 +26,8 @@ def main():
         if fpclient.available():
             print("Registrazione via FP Arbiter — appoggia e solleva lo STESSO dito "
                   "ripetutamente quando il sensore si illumina...", flush=True)
-            r = fpclient.call({"cmd": "enroll"}, wait=120.0)
+            r = fpclient.call_stream({"cmd": "enroll"},
+                                     on_event=lambda m: print(m, flush=True), wait=120.0)
             if r.get("ok"):
                 print(GREEN + "✅ REGISTRATA." + RST +
                       " handle=0x%x  (%d impronta/e totali)" % (r.get("handle", 0), r.get("count", 0)))

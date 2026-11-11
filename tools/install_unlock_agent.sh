@@ -2,12 +2,16 @@
 # Installa il demone di sblocco come LaunchAgent (avvio automatico al login).
 # Utente, NON sudo:   bash install_unlock_agent.sh
 set -e
-SRC="$(cd "$(dirname "$0")" && pwd)/com.cvfp.unlock.plist"
-DST="$HOME/Library/LaunchAgents/com.cvfp.unlock.plist"
+HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HOME/Library/LaunchAgents"
-cp "$SRC" "$DST"
-launchctl unload "$DST" 2>/dev/null || true
-launchctl load -w "$DST"
+# prima l'arbitro (unico proprietario del lettore), poi il demone che lo usa
+for NAME in com.cvfp.arbiter com.cvfp.unlock; do
+  DST="$HOME/Library/LaunchAgents/$NAME.plist"
+  cp "$HERE/$NAME.plist" "$DST"
+  launchctl unload "$DST" 2>/dev/null || true
+  launchctl load -w "$DST"
+done
+DST="$HOME/Library/LaunchAgents/com.cvfp.unlock.plist"
 echo "LaunchAgent installato e avviato: $DST"
 echo "Log:  tail -f ~/usbcfg/controlvault/fpunlock.log"
 echo

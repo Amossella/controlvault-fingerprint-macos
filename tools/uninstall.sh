@@ -11,12 +11,15 @@ say()  { printf "\n\033[1;36m==> %s\033[0m\n" "$*"; }
 ok()   { printf "   \033[32m✓\033[0m %s\n" "$*"; }
 warn() { printf "   \033[33m!\033[0m %s\n" "$*"; }
 
-say "Demone di sblocco"
-PL="$HOME/Library/LaunchAgents/com.cvfp.unlock.plist"
-if [ -f "$PL" ]; then
-  launchctl unload "$PL" 2>/dev/null || true
-  rm -f "$PL" && ok "LaunchAgent rimosso"
-else ok "nessun LaunchAgent"; fi
+say "Demone di sblocco e arbitro del lettore"
+for NAME in com.cvfp.unlock com.cvfp.arbiter; do
+  PL="$HOME/Library/LaunchAgents/$NAME.plist"
+  if [ -f "$PL" ]; then
+    launchctl unload "$PL" 2>/dev/null || true
+    rm -f "$PL" && ok "LaunchAgent rimosso: $NAME"
+  else ok "nessun LaunchAgent: $NAME"; fi
+done
+rm -f "$(cd "$(dirname "$0")/.." && pwd)/controlvault/arbiter.sock" /tmp/cvfp-arbiter.sock
 
 say "Modulo PAM per sudo (richiede password admin)"
 if grep -q pam_cvfp /etc/pam.d/sudo 2>/dev/null; then

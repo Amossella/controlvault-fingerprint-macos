@@ -14,7 +14,8 @@ Protocollo: una riga JSON per richiesta, una riga JSON di risposta.
   {"cmd":"list"}                      -> {"ok":true,"templates":[...]}
   {"cmd":"reset"}                     -> {"ok":true}              (reset USB)
 
-Socket: /tmp/cvfp-arbiter.sock (0666: raggiungibile sia dall'utente sia da root/PAM).
+Socket: ~/usbcfg/controlvault/arbiter.sock (0600, in una cartella dell'utente: altri
+utenti non possono né collegarsi né crearne uno finto; root/PAM si collega lo stesso).
 Log:    ~/usbcfg/controlvault/fparbiter.log
 """
 import sys, os, json, time, socket, threading, traceback
@@ -24,21 +25,16 @@ CV = "/Users/amoslobianco/usbcfg/controlvault"
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, CV)
 
-SOCK_PATH = "/tmp/cvfp-arbiter.sock"
+SOCK_PATH = os.path.join(CV, "arbiter.sock")
 TPL = os.path.join(CV, "mac_template.json")
-LOGP = os.path.join(CV, "fparbiter.log")
 
 _reader_lock = threading.Lock()   # serializza OGNI accesso al lettore
 
 
 def log(m):
-    line = time.strftime("%H:%M:%S ") + m + "\n"
-    try:
-        with open(LOGP, "a") as f:
-            f.write(line)
-    except Exception:
-        pass
-    sys.stderr.write(line); sys.stderr.flush()
+    # launchd reindirizza stderr su fparbiter.log: scrivere anche sul file
+    # raddoppiava ogni riga.
+    sys.stderr.write(time.strftime("%H:%M:%S ") + m + "\n"); sys.stderr.flush()
 
 
 # ----------------------------- template JSON -----------------------------
@@ -50,7 +46,11 @@ def load_templates():
 
 
 def save_templates(items):
-    json.dump({"templates": items}, open(TPL, "w"), indent=2)
+    # scrittura atomica: un crash a metà non deve azzerare l'elenco delle impronte
+    tmp = TPL + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"templates": items}, f, indent=2)
+    os.replace(tmp, TPL)
 
 
 def _handles():
@@ -58,16 +58,16 @@ def _handles():
 
 
 # ----------------------------- sessione lettore -----------------------------
-def _open_session(C, secure):
-    """Apre una sessione sicura; su 0B/'non pronto' tenta un reset USB e riprova."""
+def _begin_session(C, secure):
+    """Claim + reset + handshake (NIENTE open: lo fa ogni operazione, perché enroll
+    apre da sé → un pre-open causava doppia apertura e 0xf). Su 0B tenta reset USB."""
     try:
         d = C.ControlVault(); d.claim()
     except Exception as e:
         raise RuntimeError("claim fallito: %s" % e)
     try:
         s = secure.SecureSession(d); s.reset(); s.handshake()
-        st, ih = s.open()
-        return d, s, st
+        return d, s
     except Exception as e:
         # lettore impuntato (tipico "chiave pubblica non valida 0B"): reset e 1 retry
         log("handshake KO (%s) → reset USB e ritento" % e)
@@ -78,8 +78,7 @@ def _open_session(C, secure):
         time.sleep(0.4)
         try:
             s = secure.SecureSession(d); s.reset(); s.handshake()
-            st, ih = s.open()
-            return d, s, st
+            return d, s
         except Exception as e3:
             try: d.release()
             except Exception: pass
@@ -97,7 +96,8 @@ def op_verify(timeout=25.0):
     with _reader_lock:
         d = None
         try:
-            d, s, st = _open_session(C, secure)
+            d, s = _begin_session(C, secure)
+            st, ih = s.open()
             if st != 0:
                 return {"ok": False, "error": "open 0x%x" % st}
             t0 = time.time(); misses = 0
@@ -140,13 +140,18 @@ def op_verify(timeout=25.0):
                 pass
 
 
-def op_enroll():
+def op_enroll(on_event=None):
+    def ev(m):
+        if on_event:
+            try: on_event(m)
+            except Exception: pass
     import controlvault as C, secure
     with _reader_lock:
         d = None
         try:
-            d, s, st = _open_session(C, secure)
-            ok, last, stages, cst, handle, tid = s.enroll(target_stages=8, max_stages=14)
+            d, s = _begin_session(C, secure)
+            ok, last, stages, cst, handle, tid = s.enroll(
+                target_stages=8, max_stages=14, on_event=ev)
             if not ok or handle == 0:
                 return {"ok": False, "error": "enroll fallito (status=0x%x stadi=%d)" % (last, stages)}
             rec = {"handle": handle, "id": tid.hex(), "stages": stages,
@@ -173,7 +178,7 @@ def op_remove(handle):
         d = None
         try:
             if handle:
-                d, s, st = _open_session(C, secure)
+                d, s = _begin_session(C, secure)
                 st, ih = s.open72()
                 if st == 0:
                     st2, _ = s.delete_object(handle)
@@ -208,14 +213,16 @@ def op_reset():
             return {"ok": False, "error": str(e)}
 
 
-def handle_request(obj):
+def handle_request(obj, send=None):
     cmd = (obj or {}).get("cmd")
     if cmd == "ping":
         return {"ok": True}
     if cmd == "verify":
         return op_verify(float(obj.get("timeout", 25.0)))
     if cmd == "enroll":
-        return op_enroll()
+        # streaming: ogni stadio è inviato come {"event": ...}; la risposta finale
+        # ha "ok". Così il client (CLI/GUI) mostra "appoggia il dito" in tempo reale.
+        return op_enroll(on_event=(lambda m: send({"event": m})) if send else None)
     if cmd == "remove":
         return op_remove(obj.get("handle"))
     if cmd == "list":
@@ -241,8 +248,12 @@ def serve_conn(conn):
         except Exception as e:
             conn.sendall((json.dumps({"ok": False, "error": "json: %s" % e}) + "\n").encode())
             return
-        resp = handle_request(obj)
-        conn.sendall((json.dumps(resp) + "\n").encode())
+
+        def send(o):
+            conn.sendall((json.dumps(o) + "\n").encode())
+
+        resp = handle_request(obj, send)   # può inviare eventi di streaming
+        send(resp)                         # riga finale (contiene "ok")
     except Exception:
         log("conn errore:\n" + traceback.format_exc())
     finally:
@@ -256,7 +267,7 @@ def main():
         except Exception: pass
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(SOCK_PATH)
-    os.chmod(SOCK_PATH, 0o666)   # root (PAM) e utente possono connettersi
+    os.chmod(SOCK_PATH, 0o600)   # solo il proprietario (root/PAM entra comunque)
     srv.listen(8)
     log("FP Arbiter in ascolto su %s" % SOCK_PATH)
     while True:

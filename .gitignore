@@ -50,3 +50,7 @@ ctk/**/xcuserdata/
 .DS_Store
 *.bak
 *.swp
+
+# socket dell'arbitro
+*.sock
+controlvault/*.tmp

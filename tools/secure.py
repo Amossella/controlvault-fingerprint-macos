@@ -279,6 +279,7 @@ class SecureSession:
             try:
                 n = bytes(self.d.dev.read(C.EP_INT, 16, timeout=1500))
             except Exception:
+                time.sleep(0.05)   # errore immediato (lettore sparito): niente ciclo a vuoto
                 continue
             if len(n) >= 1 and n[0] == 0x03:
                 return True
