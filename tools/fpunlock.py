@@ -174,6 +174,17 @@ def type_unicode(s):
         time.sleep(0.01)
 
 
+def clear_field(n=48):
+    """Svuota il campo con molti Backspace PRIMA di scrivere. Senza questo, a
+    ogni tentativo fallito la password si SOMMA alla precedente → 'molto più
+    lunga' → rifiutata. Backspace è affidabile anche nei campi sicuri (a
+    differenza di Cmd+A)."""
+    for _ in range(n):
+        for down in (True, False):
+            CGEventPost(kCGHIDEventTap, CGEventCreateKeyboardEvent(None, 51, down))
+    time.sleep(0.05)
+
+
 def do_unlock(pw):
     """SBLOCCO SCHERMO: riempie i campi del lock screen e invia Invio."""
     fields = []
@@ -387,6 +398,7 @@ class Matcher(threading.Thread):
                     # LocalAuthentication (Impostazioni) sono invisibili ad AX,
                     # ma i CGEvent bucano il Secure Input -> fallback sempre.
                     if not fill_auth(pw):
+                        clear_field()        # svuota residui di tentativi falliti
                         type_unicode(pw)
                         time.sleep(0.15)
                         press_return()
