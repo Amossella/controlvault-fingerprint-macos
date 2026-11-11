@@ -3,7 +3,8 @@ Basato su cvcrypto.py (crittografia verificata) e sulla sequenza enroll estratta
 """
 import os, struct, time, sys
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/usbcfg/controlvault"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "controlvault"))
 import controlvault as C
 import cvcrypto
 from Crypto.Cipher import AES

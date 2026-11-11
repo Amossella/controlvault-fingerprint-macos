@@ -11,7 +11,7 @@ MOD="/usr/local/lib/pam_cvfp.so"
 PAMSUDO="/etc/pam.d/sudo"
 LINE="auth       sufficient     /usr/local/lib/pam_cvfp.so"
 
-[ -f "$SRC" ] || { echo "manca $SRC (compila prima: clang -bundle -o pam_cvfp.so pam_cvfp.c -lpam)"; exit 1; }
+[ -f "$SRC" ] || { echo "manca $SRC (compilalo con: bash install.sh, oppure vedi l'intestazione di pam_cvfp.c)"; exit 1; }
 
 BAK="${PAMSUDO}.bak.$(date +%Y%m%d%H%M%S)"
 cp "$PAMSUDO" "$BAK"

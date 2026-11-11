@@ -2,12 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- MODELLO: __PYTHON__ e __ROOT__ sono sostituiti da install_unlock_agent.sh -->
     <key>Label</key>
     <string>com.cvfp.unlock</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/python3</string>
-        <string>/Users/amoslobianco/usbcfg/tools/fpunlock.py</string>
+        <string>__PYTHON__</string>
+        <string>__ROOT__/tools/fpunlock.py</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -16,8 +17,8 @@
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardOutPath</key>
-    <string>/Users/amoslobianco/usbcfg/controlvault/fpunlock.log</string>
+    <string>__ROOT__/controlvault/fpunlock.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/amoslobianco/usbcfg/controlvault/fpunlock.log</string>
+    <string>__ROOT__/controlvault/fpunlock.log</string>
 </dict>
 </plist>

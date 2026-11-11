@@ -5,13 +5,17 @@ l'handle del template che combacia, SENZA sapere l'handle in anticipo.
 Prova in sequenza, sullo stesso tocco non e' possibile (la capture si consuma),
 quindi ad ogni tocco prova UNA variante; ripeti appoggiando il dito piu' volte.
 
+Strumento di RICERCA: apre il lettore direttamente, quindi prima ferma
+l'arbitro (launchctl unload ~/Library/LaunchAgents/com.cvfp.arbiter.plist).
+
 Avvio:
-    /usr/local/bin/python3 ~/usbcfg/tools/fpident.py
+    python3 tools/fpident.py
 Ctrl+C per uscire.
 """
 import sys, os, struct, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.expanduser("~/usbcfg/controlvault"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "controlvault"))
 import controlvault as C
 import secure
 

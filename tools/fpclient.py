@@ -1,26 +1,30 @@
 #!/usr/local/bin/python3
-"""Client dell'FP Arbiter (fparbiterd). Lo usano demone, PAM/sudo e GUI al posto
-di aprire il lettore: così c'è un solo proprietario del ControlVault.
+"""Client dell'FP Arbiter (fparbiterd), l'unico processo che apre il lettore.
+Lo usano demone, PAM/sudo, GUI e strumenti CLI.
 
 API:
-    available()            -> bool    (l'arbitro risponde?)
-    verify(timeout=25)     -> bool    (match impronta)
-    call(obj, wait=35)     -> dict    (richiesta generica)
+    available()                     -> bool   (l'arbitro risponde?)
+    verify(timeout)                 -> bool   (match impronta)
+    call(obj, wait=35)              -> dict   (richiesta con risposta singola)
+    call_stream(obj, on_event, wait)-> dict   (richiesta con eventi, es. enroll)
 
-Se l'arbitro NON è raggiungibile, call() ritorna {"ok":False,"error":"no-arbiter"}
-così il chiamante può decidere un fallback.
+Se l'arbitro NON è raggiungibile le chiamate ritornano
+{"ok": False, "error": "no-arbiter"}.
 """
-import json, os, socket
+import json, os, socket, sys
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-SOCK_PATH = os.path.join(os.path.dirname(_HERE), "controlvault", "arbiter.sock")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cvfp_config as cfg
+
+SOCK_PATH = cfg.SOCK_PATH
+NO_ARBITER = {"ok": False, "error": "no-arbiter"}
 
 
 def _trusted():
     """Il socket deve appartenere al proprietario del progetto (o a root): chi
     risponde 'ok' a una verify autorizza sudo, quindi non ci si fida di altri."""
     try:
-        return os.stat(SOCK_PATH).st_uid in (0, os.stat(_HERE).st_uid)
+        return os.stat(SOCK_PATH).st_uid in (0, os.stat(cfg.TOOLS).st_uid)
     except OSError:
         return False
 
@@ -34,38 +38,14 @@ def _connect():
     return c
 
 
-def call(obj, wait=35.0):
-    try:
-        c = _connect()
-    except Exception:
-        return {"ok": False, "error": "no-arbiter"}
-    try:
-        c.settimeout(wait)
-        c.sendall((json.dumps(obj) + "\n").encode("utf-8"))
-        buf = b""
-        while b"\n" not in buf:
-            chunk = c.recv(4096)
-            if not chunk:
-                break
-            buf += chunk
-        if not buf:
-            return {"ok": False, "error": "no-reply"}
-        return json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
-    except Exception as e:
-        return {"ok": False, "error": "client: %s" % e}
-    finally:
-        try: c.close()
-        except Exception: pass
-
-
 def call_stream(obj, on_event=None, wait=120.0):
-    """Come call(), ma legge PIÙ righe: le righe {"event": ...} vengono passate a
-    on_event (es. 'appoggia il dito'), e si ritorna la riga finale (con 'ok').
-    Usato per l'enroll, che altrimenti non darebbe feedback in tempo reale."""
+    """Invia una richiesta e legge le righe di risposta: quelle {"event": ...}
+    vanno a on_event (es. 'appoggia il dito'), la riga finale (con 'ok') è il
+    valore di ritorno."""
     try:
         c = _connect()
     except Exception:
-        return {"ok": False, "error": "no-arbiter"}
+        return dict(NO_ARBITER)
     try:
         c.settimeout(wait)
         c.sendall((json.dumps(obj) + "\n").encode("utf-8"))
@@ -91,8 +71,12 @@ def call_stream(obj, on_event=None, wait=120.0):
         except Exception: pass
 
 
+def call(obj, wait=35.0):
+    return call_stream(obj, None, wait)
+
+
 def available():
-    return call({"cmd": "ping"}, wait=3.0).get("ok", False)
+    return bool(call({"cmd": "ping"}, wait=3.0).get("ok"))
 
 
 def verify(timeout=25.0):

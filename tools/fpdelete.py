@@ -1,68 +1,51 @@
 #!/usr/local/bin/python3
-"""Test SICURO della cancellazione di un template dal chip (cv_delete_object).
+"""Cancella un template dal chip (cv_delete_object) tramite l'arbitro.
 
 USO:
-  /usr/local/bin/python3 fpdelete.py <handle>
-  es.  fpdelete.py 0x96a4af       (hex)   oppure   fpdelete.py 9872047  (decimale)
-  --list   mostra gli handle salvati in mac_template.json
+  python3 tools/fpdelete.py --list          elenca gli handle salvati
+  python3 tools/fpdelete.py <handle>        es. 0x96a4af (hex) oppure 9872047
 
-⚠️  Provalo PRIMA su un dito "usa e getta" (registrane uno apposta con FP Manager,
-    poi cancellalo con questo tool e verifica che non venga piu' riconosciuto,
-    mentre il dito buono continua a funzionare).
+La voce viene tolta anche da mac_template.json, quindi non vale più per sudo e
+sblocco. Richiede il servizio fparbiterd attivo.
 """
-import sys, os, json, argparse
-TOOLS = "/Users/amoslobianco/usbcfg/tools"
-CV = "/Users/amoslobianco/usbcfg/controlvault"
-sys.path.insert(0, CV); sys.path.insert(0, TOOLS)
-import controlvault as C
-import secure
+import sys, os, argparse
 
-TPL = os.path.join(CV, "mac_template.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fpclient
 
 
-def load():
-    try:
-        return json.load(open(TPL)).get("templates", [])
-    except Exception:
-        return []
-
-
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("handle", nargs="?", help="handle del template (0x.. o decimale)")
     ap.add_argument("--list", action="store_true", help="elenca gli handle salvati")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+
+    if not fpclient.available():
+        print("Servizio impronte (fparbiterd) non attivo.")
+        return 1
 
     if a.list or not a.handle:
-        items = load()
+        items = fpclient.call({"cmd": "list"}).get("templates", [])
         if not items:
-            print("Nessun template in mac_template.json")
+            print("Nessuna impronta registrata.")
         for t in items:
             print("  %-20s handle=0x%x (%d)  id=%s" %
                   (t.get("name", "?"), t.get("handle", 0), t.get("handle", 0), t.get("id", "")))
         if not a.handle:
-            return
+            return 0
 
     h = int(a.handle, 0)
     print("Cancellazione del template handle=0x%x ..." % h)
-    d = C.ControlVault(); d.claim()
-    try:
-        s = secure.SecureSession(d); s.reset(); s.handshake()
-        st, ih = s.open72()
-        print("  open72 -> status=0x%x  ihandle=0x%x" % (st, ih))
-        if st != 0:
-            print("  open fallita, annullo."); return
-        st2, pl = s.delete_object(h)
-        print("  delete -> status=0x%x" % st2)
-        print("  payload:", pl.hex() if pl else "(vuoto)")
-        if st2 == 0:
-            print("✅ Il chip ha accettato la cancellazione (status 0).")
-            print("   Verifica con fpverify.py che quel dito NON sia piu' riconosciuto.")
-        else:
-            print("❌ Il chip ha rifiutato (status 0x%x) — niente cancellato." % st2)
-    finally:
-        d.release()
+    r = fpclient.call({"cmd": "remove", "handle": h}, wait=40.0)
+    if not r.get("ok"):
+        print("❌ Errore: %s" % r.get("error"))
+        return 1
+    if r.get("chip"):
+        print("✅ Cancellata dal chip e scollegata.")
+    else:
+        print("⚠️  Scollegata da sudo/sblocco, ma il chip non ha confermato la cancellazione.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

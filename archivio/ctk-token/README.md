@@ -1,3 +1,12 @@
+> **ARCHIVIATO — esperimento abbandonato (novembre 2026).**
+> Il token CryptoTokenKit funzionava (firma e decrypt protetti dall'impronta), ma è stato
+> messo da parte: allo sblocco macOS non invoca mai `beginAuthForOperation` per un token di
+> terze parti, quindi serve comunque premere Invio; il login a freddo resta impossibile
+> (l'estensione non è caricata prima del login); e richiede AMFI disattivato. Il progetto
+> usa ora arbitro + demone + PAM (vedi il README principale). Questo codice resta solo
+> come documentazione; i percorsi `ctk/` nel testo qui sotto vanno letti come
+> `archivio/ctk-token/`.
+
 # Token CryptoTokenKit sbloccato dall'impronta (ControlVault)
 
 Estensione **CryptoTokenKit** di terze parti che espone a macOS un'identità

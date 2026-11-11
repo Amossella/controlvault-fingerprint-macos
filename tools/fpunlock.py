@@ -19,13 +19,16 @@ Setup:
         security add-generic-password -U -a "$USER" -s cv-fp-unlock -w
   2) Permesso ACCESSIBILITA' per questo processo (lo chiede al primo avvio).
 
-Test:  /usr/local/bin/python3 ~/usbcfg/tools/fpunlock.py   (Ctrl+C per uscire)
+Il lettore NON viene aperto qui: il match lo esegue l'arbitro (fparbiterd), che
+deve essere attivo. Questo processo si limita a scrivere la password.
+
+Test:  python3 tools/fpunlock.py   (Ctrl+C per uscire)
 """
 import sys, os, time, threading, subprocess, ctypes, ctypes.util
 
-TOOLS = "/Users/amoslobianco/usbcfg/tools"
-CV = "/Users/amoslobianco/usbcfg/controlvault"
-sys.path.insert(0, TOOLS); sys.path.insert(0, CV)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cvfp_config as cfg
+import fpclient   # il lettore lo apre SOLO l'arbitro (fparbiterd): qui si chiede a lui
 
 import objc
 from Foundation import NSObject, NSDistributedNotificationCenter, NSRunLoop, NSDate
@@ -37,12 +40,7 @@ from ApplicationServices import (
     kAXFocusedUIElementAttribute, kAXValueAttribute, kAXRoleAttribute,
     kAXWindowsAttribute, kAXChildrenAttribute)
 
-try:
-    import fpclient   # client dell'arbitro unico del lettore (fparbiterd)
-except Exception:
-    fpclient = None
-
-KC_SERVICE = "cv-fp-unlock"
+KC_SERVICE = cfg.KC_SERVICE
 RETURN_KEYCODE = 36
 
 # Carbon: Secure Input attivo => c'e' un campo password col focus (dialoghi
@@ -257,100 +255,62 @@ def fill_auth(pw):
 
 
 class Matcher(threading.Thread):
+    """Reagisce a schermo bloccato / pop-up password: chiede il match all'arbitro
+    e, se l'impronta è riconosciuta, scrive la password."""
+
     def __init__(self):
         super().__init__(daemon=True)
         self.locked = threading.Event()   # schermo bloccato
-        self.auth = threading.Event()     # dialogo SecurityAgent presente
+        self.auth = threading.Event()     # campo password presente
         self.stop = threading.Event()
         self.auth_cooldown = 0.0
-        self._fail = 0   # errori consecutivi sul lettore (per il back-off)
-
-    # ---- back-off: non martellare il lettore quando fallisce ----
-    def _note_ok(self):
-        self._fail = 0
-
-    def _try_reset(self):
-        """Best-effort: reset USB del lettore per tentare di sbloccarlo."""
-        try:
-            import controlvault as C
-            d = C.ControlVault()
-            try:
-                d.dev.reset(); log("reset USB del lettore tentato")
-            except Exception as e:
-                log("reset USB non riuscito: %s" % e)
-        except Exception:
-            pass
-
-    def _note_fail(self, where, err):
-        self._fail += 1
-        # Retry RAPIDO: niente pause crescenti (bloccavano l'utente col dito pronto).
-        # Reset USB ogni 3 errori per rianimare il lettore se si e' impuntato.
-        if self._fail % 3 == 0:
-            log("%s: lettore non risponde (%d) -> reset USB" % (where, self._fail))
-            self._try_reset()
-        # micro-pausa solo per non ciclare a vuoto; se il device e' davvero morto
-        # (molti errori di fila) rallenta per non martellare il chip.
-        pause = 0.3 if self._fail < 12 else 5.0
-        slept = 0.0
-        while slept < pause and not self.stop.is_set():
-            if where == "lock" and not self.locked.is_set():
-                break
-            if where == "auth" and not self.auth.is_set():
-                break
-            time.sleep(0.3); slept += 0.3
-
-    # ---- helper device ----
-    def _open_session(self):
-        import controlvault as C
-        import secure
-        d = C.ControlVault(); d.claim()
-        try:
-            s = secure.SecureSession(d); s.reset(); s.handshake()
-            st, ih = s.open()
-        except Exception:
-            d.release()   # non lasciare il lock appeso se l'handshake fallisce
-            raise
-        return C, d, s, st
-
-    def _try_match(self, C, d, s, handles, to_ms=1800):
-        stc, R, pl, notif = s.capture()
-        if stc != 0:
-            for cw in (0x0440006d, 0x04400068):
-                try: d.transact(C.build_envelope(cw, bytes.fromhex("000000000400000000000000"), counter=2))
-                except Exception: pass
-            stc, R, pl, notif = s.capture()
-        if stc != 0:
-            time.sleep(0.3); return None
-        if not s.wait_finger(to=to_ms):
-            return None
-        res = 0
-        for _ in range(10):
-            st2, res, mid, mh = s.verify(handles)
-            if st2 not in (0x85, 0x0f):
-                break
-            time.sleep(0.2)
-        return res
+        self._arbiter_down = False        # per non ripetere l'avviso nel log
 
     def _handles(self):
         import json
-        tpl = os.path.join(CV, "mac_template.json")
         try:
-            return [r["handle"] for r in json.load(open(tpl)).get("templates", []) if r.get("handle")]
+            with open(cfg.TEMPLATES) as f:
+                return [r["handle"] for r in json.load(f).get("templates", []) if r.get("handle")]
         except Exception:
             return []
 
-    # ---- percorsi ARBITRO: il match lo fa fparbiterd; qui si scrive solo la password ----
-    def _handle_lock_arbiter(self):
-        log("schermo bloccato (arbitro): appoggia il dito...")
+    def _verify(self):
+        """Un tentativo di match tramite l'arbitro.
+        Ritorna True (riconosciuta), False (riprova) o None (arbitro assente)."""
+        r = fpclient.call({"cmd": "verify", "timeout": cfg.UNLOCK_VERIFY_TIMEOUT},
+                          wait=cfg.UNLOCK_VERIFY_TIMEOUT + 10.0)
+        if r.get("ok"):
+            self._arbiter_down = False
+            return True
+        err = r.get("error")
+        if err == "no-arbiter":
+            if not self._arbiter_down:
+                log("arbitro (fparbiterd) non raggiungibile: impronta non disponibile")
+                self._arbiter_down = True
+            return None
+        self._arbiter_down = False
+        if err not in ("timeout", "non riconosciuta"):
+            # errore del lettore (risposta immediata): pausa, o si martella il chip
+            log("lettore: %s" % err)
+            time.sleep(1.0)
+        return False
+
+    def _pause(self, seconds, flag):
+        """Attesa interrompibile: finisce prima se `flag` si spegne o si esce."""
+        t = 0.0
+        while t < seconds and flag.is_set() and not self.stop.is_set():
+            time.sleep(0.25); t += 0.25
+
+    # ---- flusso sblocco schermo ----
+    def handle_lock(self):
+        if not self._handles():
+            log("nessun template registrato"); self.locked.clear(); return
+        log("schermo bloccato: appoggia il dito...")
         while self.locked.is_set() and not self.stop.is_set():
-            r = fpclient.call({"cmd": "verify", "timeout": 8.0}, wait=18.0)
-            if r.get("error") == "no-arbiter":
-                log("arbitro non raggiungibile → fallback diretto"); return
-            if not r.get("ok"):
-                # timeout / non riconosciuto: ritenta subito. Errore del lettore
-                # (risposta immediata): pausa, o si martella il chip a vuoto.
-                if r.get("error") not in ("timeout", "non riconosciuta"):
-                    time.sleep(1.0)
+            ok = self._verify()
+            if ok is None:
+                self._pause(2.0, self.locked); continue
+            if not ok:
                 continue
             pw = get_password()
             if not pw:
@@ -362,133 +322,44 @@ class Matcher(threading.Thread):
                 time.sleep(0.5); waited += 0.5
             if not self.locked.is_set():
                 log("sbloccato ✓"); return
-            log("ancora bloccato: ritento tra 3s"); time.sleep(3.0)
-
-    def _handle_auth_arbiter(self, pw):
-        log("campo password rilevato (arbitro): appoggia il dito...")
-        deadline = time.time() + 20
-        while (self.auth.is_set() and not self.stop.is_set()
-               and not self.locked.is_set() and time.time() < deadline):
-            if not auth_present():
-                log("campo password chiuso"); break
-            r = fpclient.call({"cmd": "verify", "timeout": 8.0}, wait=18.0)
-            if r.get("error") == "no-arbiter":
-                log("arbitro non raggiungibile → fallback diretto"); return
-            if not r.get("ok"):
-                if r.get("error") not in ("timeout", "non riconosciuta"):
-                    time.sleep(1.0)
-                continue
-            # la verifica può durare secondi: se nel frattempo il campo password è
-            # sparito, NON digitare (finirebbe nella finestra che ha il focus).
-            if not auth_present():
-                log("campo password chiuso durante la verifica: non scrivo"); break
-            log("impronta OK -> scrivo la password")
-            if not fill_auth(pw):
-                clear_field()
-                type_unicode(pw)
-                time.sleep(0.15)
-                press_return()
-            waited = 0.0
-            while auth_present() and waited < 6.0:
-                time.sleep(0.5); waited += 0.5
-            log("autorizzato ✓" if not auth_present()
-                else "campo ancora presente (password errata?)")
-            break
-
-    # ---- flusso sblocco schermo ----
-    def handle_lock(self):
-        handles = self._handles()
-        if not handles:
-            log("nessun template registrato"); self.locked.clear(); return
-        if fpclient and fpclient.available():
-            self._handle_lock_arbiter(); return
-        C = d = None
-        try:
-            C, d, s, st = self._open_session()
-            if st != 0:
-                self._note_fail("lock", "open 0x%x" % st); return
-            self._note_ok()
-            log("schermo bloccato: appoggia il dito...")
-            while self.locked.is_set() and not self.stop.is_set():
-                res = self._try_match(C, d, s, handles, to_ms=2000)
-                if res is None:
-                    continue
-                if res == 1:
-                    pw = get_password()
-                    if not pw:
-                        log("password non nel Keychain"); break
-                    log("impronta OK -> sblocco")
-                    do_unlock(pw)
-                    waited = 0.0
-                    while self.locked.is_set() and waited < 8.0:
-                        time.sleep(0.5); waited += 0.5
-                    if not self.locked.is_set():
-                        log("sbloccato ✓"); break
-                    log("ancora bloccato: ritento tra 3s"); time.sleep(3.0)
-                else:
-                    log("dito non riconosciuto")
-        except Exception as e:
-            self._note_fail("lock", e)
-        finally:
-            try:
-                if d: d.release()
-            except Exception: pass
+            log("ancora bloccato: ritento tra 3s"); self._pause(3.0, self.locked)
 
     # ---- flusso dialogo autorizzazione ----
     def handle_auth(self):
-        handles = self._handles()
-        pw = get_password()
-        if not handles or not pw:
-            self.auth.clear(); self.auth_cooldown = time.time() + 3; return
-        if fpclient and fpclient.available():
-            try:
-                self._handle_auth_arbiter(pw)
-            finally:
-                self.auth.clear(); self.auth_cooldown = time.time() + 3
-            return
-        C = d = None
         try:
-            C, d, s, st = self._open_session()
-            if st != 0:
-                self._note_fail("auth", "open 0x%x" % st); return
-            self._note_ok()
+            pw = get_password()
+            if not self._handles() or not pw:
+                return
             log("campo password rilevato: appoggia il dito...")
-            deadline = time.time() + 20
+            deadline = time.time() + cfg.AUTH_WINDOW
             while (self.auth.is_set() and not self.stop.is_set()
                    and not self.locked.is_set() and time.time() < deadline):
                 if not auth_present():
                     log("campo password chiuso"); break
-                res = self._try_match(C, d, s, handles, to_ms=1500)
-                if res is None:
-                    continue
-                if res == 1:
-                    if not auth_present():
-                        log("campo password chiuso durante la verifica: non scrivo"); break
-                    log("impronta OK -> scrivo la password")
-                    # AX funziona solo sui dialoghi legacy; i dialoghi
-                    # LocalAuthentication (Impostazioni) sono invisibili ad AX,
-                    # ma i CGEvent bucano il Secure Input -> fallback sempre.
-                    if not fill_auth(pw):
-                        clear_field()        # svuota residui di tentativi falliti
-                        type_unicode(pw)
-                        time.sleep(0.15)
-                        press_return()
-                    waited = 0.0
-                    while auth_present() and waited < 6.0:
-                        time.sleep(0.5); waited += 0.5
-                    if not auth_present():
-                        log("autorizzato ✓")
-                    else:
-                        log("campo ancora presente (password errata?)")
+                ok = self._verify()
+                if ok is None:
                     break
-                else:
-                    log("dito non riconosciuto")
-        except Exception as e:
-            self._note_fail("auth", e)
+                if not ok:
+                    continue
+                # la verifica può durare secondi: se nel frattempo il campo password
+                # è sparito, NON digitare (finirebbe nella finestra che ha il focus).
+                if not auth_present():
+                    log("campo password chiuso durante la verifica: non scrivo"); break
+                log("impronta OK -> scrivo la password")
+                # AX funziona solo sui dialoghi legacy; i dialoghi LocalAuthentication
+                # (Impostazioni) sono invisibili ad AX, ma i CGEvent li raggiungono.
+                if not fill_auth(pw):
+                    clear_field()        # svuota residui di tentativi falliti
+                    type_unicode(pw)
+                    time.sleep(0.15)
+                    press_return()
+                waited = 0.0
+                while auth_present() and waited < 6.0:
+                    time.sleep(0.5); waited += 0.5
+                log("autorizzato ✓" if not auth_present()
+                    else "campo ancora presente (password errata?)")
+                break
         finally:
-            try:
-                if d: d.release()
-            except Exception: pass
             self.auth.clear(); self.auth_cooldown = time.time() + 3
 
     def run(self):

@@ -1,8 +1,8 @@
 #!/bin/bash
 # =====================================================================
 #  ControlVault Fingerprint for macOS — installer unico
-#  Installa: dipendenze Python, modulo PAM per sudo, demone di sblocco
-#  schermo (LaunchAgent) e l'app FP Manager.
+#  Installa: dipendenze Python, modulo PAM per sudo, arbitro del lettore e
+#  demone di sblocco schermo (LaunchAgent) e l'app FP Manager.
 #
 #  Uso:   bash install.sh [opzioni]
 #  Opzioni:
@@ -68,7 +68,8 @@ if [ "$DO_PAM" = 1 ]; then
   if ! command -v clang >/dev/null; then
     warn "clang assente (installa gli Xcode Command Line Tools: xcode-select --install) — salto il PAM"
   else
-    clang -bundle -o "$HERE/pam_cvfp.so" "$HERE/pam_cvfp.c" -lpam 2>/tmp/cvfp_clang.log \
+    clang -bundle -o "$HERE/pam_cvfp.so" "$HERE/pam_cvfp.c" -lpam \
+          "-DHELPER=\"$HERE/fpauth.py\"" "-DPY=\"$PY\"" 2>/tmp/cvfp_clang.log \
       && ok "pam_cvfp.so compilato" || { warn "compilazione PAM fallita (vedi /tmp/cvfp_clang.log) — salto"; DO_PAM=0; }
     if [ "$DO_PAM" = 1 ]; then
       sudo bash "$HERE/install_pam.sh" && ok "PAM installato per sudo" || warn "install_pam.sh fallito"
@@ -112,7 +113,7 @@ if [ "$DO_UNLOCK" = 1 ]; then
   else
     ok "password gia' nel Keychain"
   fi
-  bash "$HERE/install_unlock_agent.sh" >/dev/null 2>&1 && ok "demone installato e avviato" || warn "install_unlock_agent.sh fallito"
+  CVFP_PYTHON="$PY" bash "$HERE/install_unlock_agent.sh" >/dev/null 2>&1 && ok "arbitro e demone installati e avviati" || warn "install_unlock_agent.sh fallito"
   echo
   warn "PERMESSO ACCESSIBILITA' (necessario per lo sblocco):"
   echo "     Impostazioni di Sistema -> Privacy e sicurezza -> Accessibilita' -> '+'"

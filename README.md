@@ -48,6 +48,34 @@ third-party reader or kext. What we do instead is match on the reader's own chip
 
 ---
 
+## Architecture
+
+Only **one process ever opens the reader**: the arbiter. Everything else is a client.
+
+```
+ sudo ─ pam_cvfp.so ─ fpauth.py ─┐
+ screen lock / password prompts ─ fpunlock.py ─┤   Unix socket (0600)     ┌──────────────┐
+ FP Manager (GUI) ───────────────┼── controlvault/arbiter.sock ──▶ │ fparbiterd.py │──▶ USB reader
+ fpenroll / fpverify / fpdelete ─┘        JSON lines              └──────────────┘
+```
+
+- **`fparbiterd.py` (arbiter)** — LaunchAgent that owns the ControlVault. It serialises
+  `verify` / `enroll` / `remove` / `rename` / `list` / `reset` behind one lock, so two
+  secure sessions can never overlap (the cause of the "handshake 0B / reader not ready"
+  lock-ups when several tools opened the reader themselves). It keeps the encrypted
+  session **open between verifications** (5 minutes idle), so repeated matches skip the
+  ~3 s handshake, and it transparently reopens a session the chip has dropped.
+- **`fpunlock.py` (daemon)** — watches for the lock screen and focused password fields,
+  asks the arbiter for a match, and only then types the stored password.
+- **`fpauth.py`** — one-shot helper run by the PAM module during `sudo`.
+- **`cvfp_config.py`** — the single place for paths, timeouts and thresholds. All paths
+  are derived from the checkout location; nothing is tied to a user name.
+
+If the arbiter is not running, fingerprint auth is simply unavailable and everything
+falls back to the password — clients never touch the reader directly.
+
+---
+
 ## How it works (protocol)
 
 The BCM5880 speaks a 44-byte envelope over bulk EP `0x01`/`0x81` with an interrupt channel
@@ -88,20 +116,22 @@ pip3 install pyusb pycryptodome pyobjc-framework-Cocoa pyobjc-framework-Quartz p
 ## Repository layout
 
 ```
-tools/            core library + tools
-  secure.py         SecureSession: handshake/open/capture/update/commit/enroll/verify
-  cvcrypto.py       RSA/AES/HMAC session crypto
-  controlvault.py   USB transport (envelope, transact)   [also in controlvault/]
-  fpmanager.py      GUI (Touch-ID-style) to add/rename/remove/verify fingers
-  fpenroll.py       CLI enrollment
-  fpverify.py       CLI verification
+tools/            everything that runs
+  cvfp_config.py    paths, timeouts, thresholds (single source of truth)
+  fparbiterd.py     arbiter: the only owner of the reader (Unix-socket service)
+  fpclient.py       client library used by every other tool
+  fpunlock.py       daemon: screen unlock + password-prompt auto-type
   fpauth.py         single-shot auth helper (exit 0 = match) used by PAM
   pam_cvfp.c        PAM module source
-  fpunlock.py       daemon: screen unlock + password-prompt auto-type (System Settings, sudo, …)
-  install_pam.sh            install PAM module into /etc/pam.d/sudo
-  install_unlock_agent.sh   install the LaunchAgent
-  com.cvfp.unlock.plist     LaunchAgent definition
-controlvault/     protocol docs (IT) + controlvault.py + frida_hook.js
+  fpmanager.py      GUI (Touch-ID-style) to add/rename/remove/verify fingers
+  fpenroll.py / fpverify.py / fpdelete.py   CLI tools (through the arbiter)
+  secure.py         SecureSession: handshake/open/capture/update/commit/enroll/verify
+  cvcrypto.py       RSA/AES/HMAC session crypto
+  install.sh / uninstall.sh / install_pam.sh / install_unlock_agent.sh
+  com.cvfp.arbiter.plist / com.cvfp.unlock.plist   LaunchAgent templates
+tests/            unit tests with a fake reader (no hardware needed)
+controlvault/     USB transport (controlvault.py), protocol docs (IT), runtime data
+archivio/         abandoned experiments kept for reference (CryptoTokenKit token)
 revault_re/       reverse-engineering scripts for the Linux ToD driver
 win_re/           Windows DLL analysis scripts (vendor binaries excluded)
 *.cpp / build.sh  legacy usbcfgfix Lilu kext (only for old firmware)
@@ -117,7 +147,7 @@ win_re/           Windows DLL analysis scripts (vendor binaries excluded)
 ## Quick install
 
 One command installs the Python dependencies, the PAM module for `sudo`, the
-screen-unlock daemon and the FP Manager app:
+arbiter and screen-unlock LaunchAgents and the FP Manager app:
 
 ```bash
 bash tools/install.sh
@@ -144,7 +174,8 @@ Click **Aggiungi impronta** and follow the animated fingerprint (lift & touch 8 
 vary the angle each touch for a more tolerant template). Templates are saved to
 `controlvault/mac_template.json`.
 
-Or via CLI: `/usr/local/bin/python3 tools/fpenroll.py`.
+Or via CLI: `/usr/local/bin/python3 tools/fpenroll.py [name]`. Enrolling the same finger
+two or three times (different placements) makes matching noticeably more reliable.
 
 > **Removing a finger** erases the template from the reader's own chip (`cv_delete_object`,
 > opcode `0x0a`) and unlinks it from `sudo`/unlock. CLI: `fpdelete.py <handle>`
@@ -154,7 +185,7 @@ Or via CLI: `/usr/local/bin/python3 tools/fpenroll.py`.
 
 ```bash
 cd tools
-clang -bundle -o pam_cvfp.so pam_cvfp.c -lpam
+clang -bundle -o pam_cvfp.so pam_cvfp.c -lpam "-DHELPER=\"$PWD/fpauth.py\""
 sudo ./install_pam.sh      # backs up and edits /etc/pam.d/sudo
 ```
 
@@ -165,7 +196,7 @@ Now `sudo` accepts your finger; it falls back to the password on timeout/no-matc
 ```bash
 # store your login password in the Keychain (used only to fill the unlock field)
 security add-generic-password -U -a "$USER" -s cv-fp-unlock -w
-./tools/install_unlock_agent.sh
+./tools/install_unlock_agent.sh    # installs the arbiter and the unlock daemon
 ```
 
 Grant **Accessibility** permission to the Python binary when prompted, then log out/in.
@@ -173,6 +204,46 @@ Lock the screen (⌃⌘Q) and touch the sensor.
 
 > The daemon stores your login password in the Keychain and fills the unlock field via
 > Accessibility — a deliberate trade-off. Review `tools/fpunlock.py` before using it.
+
+---
+
+## Tests
+
+The whole chain (arbiter → socket → client → daemon / `sudo` helper) is covered by unit
+tests that run against a **fake reader**, so no hardware or finger is needed:
+
+```bash
+/usr/local/bin/python3 -m unittest discover -s tests
+```
+
+`tests/fakes.py` scripts what the reader does (finger present, match / no match, stuck
+handshake, dropped session…). Run the tests after every change; then confirm on the real
+reader with `tools/fpverify.py`.
+
+---
+
+## Security notes — read before relying on this
+
+This is a convenience layer, **not** a Touch ID equivalent. Known trade-offs:
+
+- **Any focused password field counts.** The daemon types your login password whenever a
+  fingerprint matches while Secure Input is active — including a password field in a web
+  page or another app. Do not touch the sensor while such a field has focus.
+- **Your login password is stored in the Keychain** and can be read by any process
+  running as your user (`security find-generic-password`).
+- **`sudo` runs `tools/fpauth.py` as root**, and that file is owned by your user: any
+  process running as you can modify it and become root. For a hardened setup install a
+  root-owned copy of `tools/` and compile the PAM module against that path.
+- A fingerprint match unlocks for **whoever is logged in**; templates are not per-user.
+
+---
+
+## Archived: CryptoTokenKit token
+
+[`archivio/ctk-token/`](archivio/ctk-token/) contains a working CryptoTokenKit token
+extension (sign/decrypt gated by the fingerprint) that was **abandoned**: macOS never
+calls `beginAuthForOperation` for a third-party token at the lock screen (so Return must
+still be pressed), cold-boot login cannot load the extension, and it needs AMFI disabled.
 
 ---
 

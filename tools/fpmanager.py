@@ -2,20 +2,22 @@
 """FP Manager — gestione impronte ControlVault, stile Touch ID di macOS.
 
 Aggiungi / rinomina / rimuovi / verifica le impronte usate per sudo e sblocco schermo.
-Dati in ~/usbcfg/controlvault/mac_template.json.
+Dati in controlvault/mac_template.json. Il lettore non viene aperto qui: ogni
+operazione passa dall'arbitro (fparbiterd), che deve essere attivo.
 
-Avvio:  /usr/local/bin/python3 ~/usbcfg/tools/fpmanager.py
+Avvio:  python3 tools/fpmanager.py
 """
 import sys, os, json, time, math, threading, queue
 
-TOOLS = "/Users/amoslobianco/usbcfg/tools"
-CV = "/Users/amoslobianco/usbcfg/controlvault"
-sys.path.insert(0, TOOLS); sys.path.insert(0, CV)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cvfp_config as cfg
+import fpclient
 
 import tkinter as tk
 from tkinter import simpledialog, messagebox
 
-TPL = os.path.join(CV, "mac_template.json")
+TPL = cfg.TEMPLATES
+NO_SERVICE = "Servizio impronte (fparbiterd) non attivo"
 
 # --- palette stile Touch ID ---
 BG = "#f2f2f7"
@@ -28,7 +30,7 @@ LINE = "#d9d9de"
 SEL = "#0a84ff"
 NCOLS = 4
 TILE_W, TILE_H = 132, 150
-STAGES = 8   # tocchi richiesti per registrare (piu' alto = template piu' robusto)
+STAGES = cfg.ENROLL_STAGES   # tocchi richiesti per registrare
 
 
 def load_templates():
@@ -38,8 +40,9 @@ def load_templates():
         return []
 
 
-def save_templates(items):
-    json.dump({"templates": items}, open(TPL, "w"), indent=2)
+def _err(r):
+    e = r.get("error") or "errore"
+    return NO_SERVICE if e == "no-arbiter" else e
 
 
 # archi del glifo impronta (frazione raggio, start, extent) — dome stile touchid
@@ -181,41 +184,9 @@ class App:
         threading.Thread(target=self._do_enroll, args=(name,), daemon=True).start()
 
     def _do_enroll(self, name):
-        try:
-            import fpclient
-            if fpclient.available():
-                r = fpclient.call_stream({"cmd": "enroll"},
-                        on_event=lambda m: self.q.put(("enroll_event", m)), wait=120.0)
-                if r.get("ok"):
-                    items = load_templates()
-                    for it in items:
-                        if it.get("handle") == r.get("handle") and not it.get("name"):
-                            it["name"] = name
-                    save_templates(items)
-                    self.q.put(("enroll_done", (True, "")))
-                else:
-                    self.q.put(("enroll_done", (False, r.get("error", "fallita"))))
-                return
-            import controlvault as C
-            import secure
-            d = C.ControlVault(); d.claim()
-            try:
-                s = secure.SecureSession(d); s.reset(); s.handshake()
-                ok, last, stages, cst, handle, tid = s.enroll(
-                    target_stages=STAGES, max_stages=STAGES + 6,
-                    on_event=lambda m: self.q.put(("enroll_event", m)))
-                if ok and handle:
-                    items = [x for x in load_templates() if x.get("handle") != handle]
-                    items.append({"name": name, "handle": handle, "id": tid.hex(),
-                                  "ts": time.strftime("%Y-%m-%d %H:%M:%S")})
-                    save_templates(items)
-                    self.q.put(("enroll_done", (True, "")))
-                else:
-                    self.q.put(("enroll_done", (False, "Registrazione fallita (0x%x)" % last)))
-            finally:
-                d.release()
-        except Exception as e:
-            self.q.put(("enroll_done", (False, "Errore: %s" % e)))
+        r = fpclient.call_stream({"cmd": "enroll", "name": name},
+                                 on_event=lambda m: self.q.put(("enroll_event", m)), wait=180.0)
+        self.q.put(("enroll_done", (True, "") if r.get("ok") else (False, _err(r))))
 
     def rename(self, idx):
         items = load_templates()
@@ -225,8 +196,11 @@ class App:
         name = simpledialog.askstring("Rinomina", "Nuovo nome:", initialvalue=cur, parent=self.root)
         if name is None:
             return
-        items[idx]["name"] = name.strip() or cur
-        save_templates(items); self.render()
+        r = fpclient.call({"cmd": "rename", "handle": items[idx].get("handle"),
+                           "name": name.strip() or cur})
+        if not r.get("ok"):
+            self.set_status(_err(r), "#c62828")
+        self.render()
 
     def remove(self, idx):
         if self.busy:
@@ -244,44 +218,13 @@ class App:
         threading.Thread(target=self._do_remove, args=(handle, name), daemon=True).start()
 
     def _do_remove(self, handle, name):
-        chip_ok = None
-        try:
-            import fpclient
-            if fpclient.available():
-                r = fpclient.call({"cmd": "remove", "handle": handle}, wait=30.0)
-                chip = r.get("chip")
-                if chip:
-                    self.set_status("✅ '%s' cancellata dal chip" % name, "#2e7d32")
-                elif handle:
-                    self.set_status("'%s' scollegata (chip non confermato)" % name, "#ef6c00")
-                else:
-                    self.set_status("'%s' rimossa" % name, SUB)
-                self.q.put(("done", None))
-                return
-            if handle:
-                import controlvault as C
-                import secure
-                d = C.ControlVault(); d.claim()
-                try:
-                    s = secure.SecureSession(d); s.reset(); s.handshake()
-                    st, ih = s.open72()
-                    if st == 0:
-                        st2, _ = s.delete_object(handle)
-                        chip_ok = (st2 == 0)
-                    else:
-                        chip_ok = False
-                finally:
-                    d.release()
-        except Exception:
-            chip_ok = False
-        # scollega comunque dal JSON (non più usata per sudo/sblocco)
-        save_templates([x for x in load_templates() if x.get("handle") != handle])
-        if chip_ok:
+        r = fpclient.call({"cmd": "remove", "handle": handle}, wait=40.0)
+        if not r.get("ok"):
+            self.set_status(_err(r), "#c62828")
+        elif r.get("chip"):
             self.set_status("✅ '%s' cancellata dal chip" % name, "#2e7d32")
-        elif handle:
-            self.set_status("'%s' scollegata (chip non confermato)" % name, "#ef6c00")
         else:
-            self.set_status("'%s' rimossa" % name, SUB)
+            self.set_status("'%s' scollegata (chip non confermato)" % name, "#ef6c00")
         self.q.put(("done", None))
 
     def on_verify(self):
@@ -294,40 +237,16 @@ class App:
 
     def _do_verify(self):
         try:
-            import fpclient
-            if fpclient.available():
-                ok = fpclient.verify(15.0)
-                self.set_status("✅ Riconosciuta" if ok else "❌ Non riconosciuta",
-                                "#2e7d32" if ok else "#c62828")
-                return
-            import controlvault as C
-            import secure
-            handles = [t["handle"] for t in load_templates() if t.get("handle")]
-            d = C.ControlVault(); d.claim()
-            try:
-                s = secure.SecureSession(d); s.reset(); s.handshake()
-                st, ih = s.open()
-                if st != 0:
-                    self.set_status("Lettore non pronto", "#c62828"); return
-                stc, R, pl, notif = s.capture()
-                if stc != 0:
-                    for cw in (0x0440006d, 0x04400068):
-                        try: d.transact(C.build_envelope(cw, bytes.fromhex("000000000400000000000000"), counter=2))
-                        except Exception: pass
-                    stc, R, pl, notif = s.capture()
-                if stc != 0 or not s.wait_finger(to=15000):
-                    self.set_status("Nessun dito", "#c62828"); return
-                res = 0
-                for _ in range(10):
-                    st2, res, mid, mh = s.verify(handles)
-                    if st2 not in (0x85, 0x0f): break
-                    time.sleep(0.2)
-                self.set_status("✅ Riconosciuta" if res == 1 else "❌ Non riconosciuta",
-                                "#2e7d32" if res == 1 else "#c62828")
-            finally:
-                d.release()
-        except Exception as e:
-            self.set_status("Errore: %s" % e, "#c62828")
+            r = fpclient.call({"cmd": "verify", "timeout": cfg.GUI_VERIFY_TIMEOUT},
+                              wait=cfg.GUI_VERIFY_TIMEOUT + 10.0)
+            if r.get("ok"):
+                self.set_status("✅ Riconosciuta", "#2e7d32")
+            elif r.get("error") == "non riconosciuta":
+                self.set_status("❌ Non riconosciuta", "#c62828")
+            elif r.get("error") == "timeout":
+                self.set_status("Nessun dito", "#c62828")
+            else:
+                self.set_status(_err(r), "#c62828")
         finally:
             self.q.put(("done", None))
 

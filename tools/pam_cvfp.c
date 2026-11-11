@@ -7,8 +7,10 @@
  * PRIMA della riga della password, cosi' l'impronta e' opzionale e la
  * password resta sempre come fallback.
  *
- * Compila:
- *   clang -bundle -o pam_cvfp.so pam_cvfp.c -lpam
+ * Compila (lo fa install.sh), indicando dove si trova l'helper:
+ *   clang -bundle -o pam_cvfp.so pam_cvfp.c -lpam \
+ *         -DHELPER='"/percorso/del/progetto/tools/fpauth.py"'
+ *   (opzionale: -DPY='"/percorso/python3"')
  */
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -18,8 +20,12 @@
 #include <security/pam_appl.h>
 #include <security/pam_modules.h>
 
+#ifndef PY
 #define PY     "/usr/local/bin/python3"
-#define HELPER "/Users/amoslobianco/usbcfg/tools/fpauth.py"
+#endif
+#ifndef HELPER
+#error "definisci HELPER: -DHELPER='\"/percorso/tools/fpauth.py\"'"
+#endif
 #define TIMEOUT "12"              /* default; sovrascrivibile con un arg nel pam.d */
 
 PAM_EXTERN int

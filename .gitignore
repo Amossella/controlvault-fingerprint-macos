@@ -31,19 +31,20 @@ controlvault/fpunlock.log
 # --- personal / device-specific state ---
 controlvault/mac_template.json
 tools/enroll_state.json
+controlvault/enroll_state.json
 
 # --- CTK token: chiave privata e materiale d'identità (NON distribuire) ---
-ctk/id/*.pem
-ctk/id/*.der
-ctk/src/IdentityMaterial.h
+archivio/ctk-token/id/*.pem
+archivio/ctk-token/id/*.der
+archivio/ctk-token/src/IdentityMaterial.h
 # build Xcode / bundle del token
-ctk/build-xc/
-ctk/xcbuild/
-ctk/build/
-ctk/helper/fphelper
-ctk/helper/*.o
+archivio/ctk-token/build-xc/
+archivio/ctk-token/xcbuild/
+archivio/ctk-token/build/
+archivio/ctk-token/helper/fphelper
+archivio/ctk-token/helper/*.o
 # stato utente Xcode
-ctk/**/xcuserdata/
+archivio/ctk-token/**/xcuserdata/
 *.xcuserstate
 
 # --- editor / OS cruft ---

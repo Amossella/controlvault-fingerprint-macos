@@ -1,80 +1,41 @@
 #!/usr/local/bin/python3
-"""Registra un'impronta NATIVAMENTE su macOS (enroll cifrato) e salva l'handle del template.
+"""Registra un'impronta su macOS (enroll cifrato) tramite l'arbitro.
 
 Avvio:
-    /usr/local/bin/python3 ~/usbcfg/tools/fpenroll.py
+    python3 tools/fpenroll.py [nome]
 
-Appoggia e solleva lo STESSO dito quando te lo chiede (4 volte). Alla fine salva
-l'handle del template in ~/usbcfg/controlvault/mac_template.json, che fpverify.py usera'
-per il match. Nessuna dipendenza da Windows.
+Appoggia e solleva lo STESSO dito a ogni richiesta (8 volte, variando un po'
+l'appoggio). L'handle del template viene salvato in controlvault/mac_template.json.
+Richiede il servizio fparbiterd attivo (lo installa install_unlock_agent.sh).
 """
-import sys, os, json, time
+import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.expanduser("~/usbcfg/controlvault"))
-import controlvault as C
-import secure
+import fpclient
 
-OUT = os.path.expanduser("~/usbcfg/controlvault/mac_template.json")
-GREEN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"; RST = "\033[0m"
+GREEN = "\033[92m"; RED = "\033[91m"; RST = "\033[0m"
 
 
-def main():
-    # Arbitro unico: se fparbiterd è attivo, registra TRAMITE lui (niente contese
-    # col demone → niente più "handshake 0B"). Perde la barra per-stadio ma è robusto.
-    try:
-        import fpclient
-        if fpclient.available():
-            print("Registrazione via FP Arbiter — appoggia e solleva lo STESSO dito "
-                  "ripetutamente quando il sensore si illumina...", flush=True)
-            r = fpclient.call_stream({"cmd": "enroll"},
-                                     on_event=lambda m: print(m, flush=True), wait=120.0)
-            if r.get("ok"):
-                print(GREEN + "✅ REGISTRATA." + RST +
-                      " handle=0x%x  (%d impronta/e totali)" % (r.get("handle", 0), r.get("count", 0)))
-            else:
-                print(RED + "Registrazione FALLITA" + RST + ": %s" % r.get("error"))
-            return
-    except Exception:
-        pass   # arbitro assente → enroll diretto qui sotto
-
-    d = C.ControlVault(); d.claim()
-    print("Connessione al lettore...", flush=True)
-    try:
-        s = secure.SecureSession(d)
-        s.reset(); s.handshake()
-        print(GREEN + "Pronto per la registrazione." + RST +
-              " Appoggia e solleva lo STESSO dito quando vedi >> (4 volte).\n", flush=True)
-        ok, last, stages, cst, handle, tid = s.enroll(target_stages=8, max_stages=14)
-        print()
-        if not ok or handle == 0:
-            print(RED + "Registrazione FALLITA" + RST +
-                  " (status=0x%x, commit=0x%x, stadi=%d, handle=0x%x)" %
-                  (last, cst or 0, stages, handle))
-            print("Riprova: solleva bene il dito tra un tocco e l'altro.")
-            return
-        rec = {"handle": handle, "id": tid.hex(), "stages": stages,
-               "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
-        # supporta piu' impronte: accumula in una lista
-        allrec = []
-        if os.path.exists(OUT):
-            try:
-                old = json.load(open(OUT))
-                allrec = old.get("templates", [])
-            except Exception:
-                pass
-        allrec = [t for t in allrec if t.get("handle") != handle]
-        allrec.append(rec)
-        json.dump({"templates": allrec}, open(OUT, "w"), indent=2)
-        print(GREEN + "✅ REGISTRATA su macOS." + RST)
-        print("   handle template = 0x%x" % handle)
-        print("   id              = %s" % tid.hex())
-        print("   salvato in       %s  (%d impronta/e totali)" % (OUT, len(allrec)))
-        print("\nOra lancia  fpverify.py  e prova il dito.")
-    except KeyboardInterrupt:
-        print("\nInterrotto.")
-    finally:
-        d.release()
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    name = argv[0] if argv else None
+    if not fpclient.available():
+        print(RED + "Servizio impronte (fparbiterd) non attivo." + RST +
+              " Avvialo con: bash tools/install_unlock_agent.sh")
+        return 1
+    print("Registrazione: appoggia e solleva lo STESSO dito a ogni richiesta.\n", flush=True)
+    req = {"cmd": "enroll"}
+    if name:
+        req["name"] = name
+    r = fpclient.call_stream(req, on_event=lambda m: print(m, flush=True), wait=180.0)
+    if r.get("ok"):
+        print(GREEN + "\n✅ REGISTRATA." + RST +
+              " handle=0x%x  (%d impronta/e totali)" % (r.get("handle", 0), r.get("count", 0)))
+        return 0
+    print(RED + "\nRegistrazione FALLITA" + RST + ": %s" % r.get("error"))
+    print("Riprova: solleva bene il dito tra un tocco e l'altro.")
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
